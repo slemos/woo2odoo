@@ -1,0 +1,40 @@
+# Copyright (C) 2024 Sebastian Lemos
+# This file is distributed under the same license as the Woo2Odoo - WooCommerce to Odoo Integration plugin.
+msgid ""
+msgstr ""
+"Project-Id-Version: Woo2Odoo - WooCommerce to Odoo Integration 1.0.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/woo2odoo\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2024-08-30T21:50:23+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.11.0\n"
+"X-Domain: woo2odoo-plugin\n"
+
+#. Plugin Name of the plugin
+#: woo2odoo-plugin.php
+msgid "Woo2Odoo - WooCommerce to Odoo Integration"
+msgstr ""
+
+#. Plugin URI of the plugin
+#: woo2odoo-plugin.php
+msgid "http://github.com/slemos/woo2odoo"
+msgstr ""
+
+#. Description of the plugin
+#: woo2odoo-plugin.php
+msgid "WooCommerce to Odoo Integration plugin"
+msgstr ""
+
+#. Author of the plugin
+#: woo2odoo-plugin.php
+msgid "Sebastian Lemos"
+msgstr ""
+
+#. Author URI of the plugin
+#: woo2odoo-plugin.php
+msgid "http://github.com/slemos"
+msgstr ""
