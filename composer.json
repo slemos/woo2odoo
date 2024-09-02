@@ -1,18 +1,43 @@
 {
-	"name": "extension/woo2odoo",
-	"description": "WooCommerce plugin",
-	"autoload": {
-		"psr-4": {
-			"Woo2odoo\\": "includes/"
-		}
-	},
-	"require-dev": {
-		"phpunit/phpunit": "^9.0",
-		"automattic/jetpack-autoloader": "^2"
-	},
-	"config": {
-		"allow-plugins": {
-			"automattic/jetpack-autoloader": true
-		}
-	}
+    "name": "slemos/woo2odoo",
+    "description": "A starter WordPress plugin, ready for your next project.",
+    "keywords": [
+        "wordpress"
+    ],
+    "type": "wordpress-plugin",
+    "homepage": "https://github.com/slemos/woo2odoo",
+    "license": "GPL-2.0+",
+    "authors": [
+        {
+            "name": "Sebastian Lemos",
+            "homepage": "https://github.com/slemos"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/slemos/woo2odoo/issues",
+        "source": "https://github.com/slemos/woo2odoo/"
+    },
+    "require-dev": {
+        "dealerdirect/phpcodesniffer-composer-installer": "*",
+        "object-calisthenics/phpcs-calisthenics-rules": "*",
+        "phpcompatibility/php-compatibility": "*",
+        "wp-coding-standards/wpcs": "*",
+        "phpunit/phpunit": "^8",
+        "yoast/phpunit-polyfills": "^2.0",
+        "wp-cli/wp-cli-bundle": "^2.11"
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true,
+            "composer/installers": true
+        }
+    },
+    "scripts": {
+        "install-codestandards": [
+            "PHPCSStandards\\Composer\\Plugin\\Installers\\PHPCodeSniffer\\Plugin::run"
+        ],
+        "post-install-cmd": [
+            "@install-codestandards"
+        ]
+    }
 }

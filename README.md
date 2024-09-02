@@ -18,4 +18,4 @@ npm run build
 wp-env start
 ```
 
-Visit the added page at http://localhost:8888/wp-admin/admin.php?page=wc-admin&path=%2Fexample.
+Visit the added page at http://localhost:8888/wp-admin/admin.php?page=wc-admin&path=%2Fwoo2odoo.
