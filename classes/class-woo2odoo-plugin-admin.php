@@ -4,17 +4,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Starter_Plugin_Admin Class
+ * Woo2Odoo_Plugin_Admin Class
  *
- * @class Starter_Plugin_Admin
+ * @class Woo2Odoo_Plugin_Admin
  * @version	1.0.0
  * @since 1.0.0
- * @package	Starter_Plugin
+ * @package	Woo2Odoo_Plugin
  * @author Jeffikus
  */
-final class Starter_Plugin_Admin {
+final class Woo2Odoo_Plugin_Admin {
 	/**
-	 * Starter_Plugin_Admin The single instance of Starter_Plugin_Admin.
+	 * Woo2Odoo_Plugin_Admin The single instance of Woo2Odoo_Plugin_Admin.
 	 * @var 	object
 	 * @access  private
 	 * @since 	1.0.0
@@ -43,13 +43,13 @@ final class Starter_Plugin_Admin {
 	}
 
 	/**
-	 * Main Starter_Plugin_Admin Instance
+	 * Main Woo2Odoo_Plugin_Admin Instance
 	 *
-	 * Ensures only one instance of Starter_Plugin_Admin is loaded or can be loaded.
+	 * Ensures only one instance of Woo2Odoo_Plugin_Admin is loaded or can be loaded.
 	 *
 	 * @since 1.0.0
 	 * @static
-	 * @return Main Starter_Plugin_Admin instance
+	 * @return Main Woo2Odoo_Plugin_Admin instance
 	 */
 	public static function instance () {
 		if ( is_null( self::$instance ) ) {
@@ -65,7 +65,7 @@ final class Starter_Plugin_Admin {
 	 * @return  void
 	 */
 	public function register_settings_screen () {
-		$this->hook = add_submenu_page( 'options-general.php', __( 'Starter Plugin Settings', 'starter-plugin' ), __( 'Starter Plugin', 'starter-plugin' ), 'manage_options', 'starter-plugin', array( $this, 'settings_screen' ) );
+		$this->hook = add_submenu_page( 'options-general.php', __( 'Woo2Odoo Plugin Settings', 'woo2odoo-plugin' ), __( 'Woo2Odoo Plugin', 'woo2odoo-plugin' ), 'manage_options', 'woo2odoo-plugin', array( $this, 'settings_screen' ) );
 	}
 
 	/**
@@ -76,18 +76,18 @@ final class Starter_Plugin_Admin {
 	 */
 	public function settings_screen () {
 		global $title;
-		$sections = Starter_Plugin()->settings->get_settings_sections();
+		$sections = Woo2Odoo_Plugin()->settings->get_settings_sections();
 		$tab      = $this->get_current_tab( $sections );
 		?>
-		<div class="wrap starter-plugin-wrap">
+		<div class="wrap woo2odoo-plugin-wrap">
 			<?php
 				$this->admin_header_html( $sections, $title );
 			?>
 			<form action="options.php" method="post">
 				<?php
-					settings_fields( 'starter-plugin-settings-' . $tab );
-					do_settings_sections( 'starter-plugin-' . $tab );
-					submit_button( __( 'Save Changes', 'starter-plugin' ) );
+					settings_fields( 'woo2odoo-plugin-settings-' . $tab );
+					do_settings_sections( 'woo2odoo-plugin-' . $tab );
+					submit_button( __( 'Save Changes', 'woo2odoo-plugin' ) );
 				?>
 			</form>
 		</div><!--/.wrap-->
@@ -101,11 +101,11 @@ final class Starter_Plugin_Admin {
 	 * @return  void
 	 */
 	public function register_settings () {
-		$sections = Starter_Plugin()->settings->get_settings_sections();
+		$sections = Woo2Odoo_Plugin()->settings->get_settings_sections();
 		if ( 0 < count( $sections ) ) {
 			foreach ( $sections as $k => $v ) {
-				register_setting( 'starter-plugin-settings-' . sanitize_title_with_dashes( $k ), 'starter-plugin-' . $k, array( $this, 'validate_settings' ) );
-				add_settings_section( sanitize_title_with_dashes( $k ), $v, array( $this, 'render_settings' ), 'starter-plugin-' . $k, $k, $k );
+				register_setting( 'woo2odoo-plugin-settings-' . sanitize_title_with_dashes( $k ), 'woo2odoo-plugin-' . $k, array( $this, 'validate_settings' ) );
+				add_settings_section( sanitize_title_with_dashes( $k ), $v, array( $this, 'render_settings' ), 'woo2odoo-plugin-' . $k, $k, $k );
 			}
 		}
 	}
@@ -119,14 +119,14 @@ final class Starter_Plugin_Admin {
 	 */
 	public function render_settings ( $args ) {
 		$token  = $args['id'];
-		$fields = Starter_Plugin()->settings->get_settings_fields( $token );
+		$fields = Woo2Odoo_Plugin()->settings->get_settings_fields( $token );
 
 		if ( 0 < count( $fields ) ) {
 			foreach ( $fields as $k => $v ) {
 				$args 		= $v;
 				$args['id'] = $k;
 
-				add_settings_field( $k, $v['name'], array( Starter_Plugin()->settings, 'render_field' ), 'starter-plugin-' . $token, $v['section'], $args );
+				add_settings_field( $k, $v['name'], array( Woo2Odoo_Plugin()->settings, 'render_field' ), 'woo2odoo-plugin-' . $token, $v['section'], $args );
 			}
 		}
 	}
@@ -139,9 +139,9 @@ final class Starter_Plugin_Admin {
 	 * @return  array        Validated data.
 	 */
 	public function validate_settings ( $input ) {
-		$sections = Starter_Plugin()->settings->get_settings_sections();
-		$tab      = $this->_get_current_tab( $sections );
-		return Starter_Plugin()->settings->validate_settings( $input, $tab );
+		$sections = Woo2Odoo_Plugin()->settings->get_settings_sections();
+		$tab      = $this->get_current_tab( $sections );
+		return Woo2Odoo_Plugin()->settings->validate_settings( $input, $tab );
 	}
 
 	/**
@@ -155,7 +155,7 @@ final class Starter_Plugin_Admin {
 	public function get_admin_header_html ( $sections, $title ) {
 		$defaults = array(
 			'tag'     => 'h2',
-			'atts'    => array( 'class' => 'starter-plugin-wrapper' ),
+			'atts'    => array( 'class' => 'woo2odoo-plugin-wrapper' ),
 			'content' => $title,
 		);
 
@@ -197,7 +197,7 @@ final class Starter_Plugin_Admin {
 	private function get_current_tab ( $sections = array() ) {
 		$response = key( $sections );
 
-		if ( isset( $_GET['tab'] ) && check_admin_referer( 'starter_plugin_switch_settings_tab', 'starter_plugin_switch_settings_tab' ) ) {
+		if ( isset( $_GET['tab'] ) && check_admin_referer( 'woo2odoo_plugin_switch_settings_tab', 'woo2odoo_plugin_switch_settings_tab' ) ) {
 			$response = sanitize_title_with_dashes( $_GET['tab'] );
 		}
 
@@ -215,7 +215,7 @@ final class Starter_Plugin_Admin {
 	private function get_admin_header_data ( $sections, $title ) {
 		$response = array(
 			'tag'     => 'h2',
-			'atts'    => array( 'class' => 'starter-plugin-wrapper' ),
+			'atts'    => array( 'class' => 'woo2odoo-plugin-wrapper' ),
 			'content' => $title,
 		);
 
@@ -231,10 +231,10 @@ final class Starter_Plugin_Admin {
 					$class .= ' nav-tab-active';
 				}
 
-				$response['content'] .= '<a href="' . wp_nonce_url( admin_url( 'options-general.php?page=starter-plugin&tab=' . sanitize_title_with_dashes( $key ) ), 'starter_plugin_switch_settings_tab', 'starter_plugin_switch_settings_tab' ) . '" class="' . esc_attr( $class ) . '">' . esc_html( $value ) . '</a>';
+				$response['content'] .= '<a href="' . wp_nonce_url( admin_url( 'options-general.php?page=woo2odoo-plugin&tab=' . sanitize_title_with_dashes( $key ) ), 'woo2odoo_plugin_switch_settings_tab', 'woo2odoo_plugin_switch_settings_tab' ) . '" class="' . esc_attr( $class ) . '">' . esc_html( $value ) . '</a>';
 			}
 		}
 
-		return (array) apply_filters( 'starter_plugin_get_admin_header_data', $response );
+		return (array) apply_filters( 'woo2odoo_plugin_get_admin_header_data', $response );
 	}
 }

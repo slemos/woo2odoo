@@ -1,16 +1,16 @@
 <?php
 /**
- * Main Starter_Plugin Class
+ * Main Woo2Odoo_Plugin Class
  *
- * @class Starter_Plugin
+ * @class Woo2Odoo_Plugin
  * @version	1.0.0
  * @since 1.0.0
- * @package	Starter_Plugin
- * @author Matty
+ * @package	Woo2Odoo_Plugin
+ * @author Slemos
  */
-final class Starter_Plugin {
+final class Woo2Odoo_Plugin {
 	/**
-	 * Starter_Plugin The single instance of Starter_Plugin.
+	 * Woo2Odoo_Plugin The single instance of Woo2Odoo_Plugin.
 	 * @var 	object
 	 * @access  private
 	 * @since 	1.0.0
@@ -90,30 +90,21 @@ final class Starter_Plugin {
 	 * @since   1.0.0
 	 */
 	public function __construct () {
-		$this->token       = 'starter-plugin';
+		$this->token       = 'woo2odoo-plugin';
 		$this->plugin_url  = plugin_dir_url( __FILE__ );
 		$this->plugin_path = plugin_dir_path( __FILE__ );
 		$this->version     = '1.0.0';
 
 		// Admin - Start
-		require_once 'class-starter-plugin-settings.php';
-			$this->settings = Starter_Plugin_Settings::instance();
+		require_once 'class-woo2odoo-plugin-settings.php';
+			$this->settings = Woo2Odoo_Plugin_Settings::instance();
 
 		if ( is_admin() ) {
-			require_once 'class-starter-plugin-admin.php';
-			$this->admin = Starter_Plugin_Admin::instance();
+			require_once 'class-woo2odoo-plugin-admin.php';
+			$this->admin = Woo2Odoo_Plugin_Admin::instance();
 		}
 		// Admin - End
 
-		// Post Types - Start
-		require_once 'class-starter-plugin-post-type.php';
-		require_once 'class-starter-plugin-taxonomy.php';
-
-		// Register an example post type. To register other post types, duplicate this line.
-		$this->post_types['thing'] = new Starter_Plugin_Post_Type( 'thing', __( 'Thing', 'starter-plugin' ), __( 'Things', 'starter-plugin' ), array( 'menu_icon' => 'dashicons-carrot' ) );
-
-		// Register an example taxonomy, connected to our post type. To register other taxonomies, duplicate this line.
-		$this->taxonomies['thing-category'] = new Starter_Plugin_Taxonomy();
 		// Post Types - End
 		register_activation_hook( __FILE__, array( $this, 'install' ) );
 
@@ -121,14 +112,14 @@ final class Starter_Plugin {
 	}
 
 	/**
-	 * Main Starter_Plugin Instance
+	 * Main Woo2Odoo_Plugin Instance
 	 *
-	 * Ensures only one instance of Starter_Plugin is loaded or can be loaded.
+	 * Ensures only one instance of Woo2Odoo_Plugin is loaded or can be loaded.
 	 *
 	 * @since 1.0.0
 	 * @static
-	 * @see Starter_Plugin()
-	 * @return Main Starter_Plugin instance
+	 * @see Woo2Odoo_Plugin()
+	 * @return Main Woo2Odoo_Plugin instance
 	 */
 	public static function instance () {
 		if ( is_null( self::$instance ) ) {
@@ -143,7 +134,7 @@ final class Starter_Plugin {
 	 * @since   1.0.0
 	 */
 	public function load_plugin_textdomain() {
-		load_plugin_textdomain( 'starter-plugin', false, dirname( plugin_basename( __FILE__ ) ) . '/languages/' );
+		load_plugin_textdomain( 'woo2odoo-plugin', false, dirname( plugin_basename( __FILE__ ) ) . '/languages/' );
 	}
 
 	/**

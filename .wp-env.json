@@ -1,9 +1,14 @@
 {
     "core": "WordPress/WordPress",
-    "plugins": [ "." ],
+    "phpVersion": "8.2",
+    "plugins": [ "https://downloads.wordpress.org/plugin/woocommerce.zip", "." ],
     "env": {
         "tests": {
             "phpVersion": "8.1"
         }
-    }
+    },
+	"config": {
+		"WP_DEBUG": true,
+		"SCRIPT_DEBUG": true
+	}
 }

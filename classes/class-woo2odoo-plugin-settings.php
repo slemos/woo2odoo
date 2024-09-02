@@ -4,17 +4,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Starter_Plugin_Settings Class
+ * Woo2Odoo_Plugin_Settings Class
  *
- * @class Starter_Plugin_Settings
+ * @class Woo2Odoo_Plugin_Settings
  * @version	1.0.0
  * @since 1.0.0
- * @package	Starter_Plugin
+ * @package	Woo2Odoo_Plugin
  * @author Jeffikus
  */
-final class Starter_Plugin_Settings {
+final class Woo2Odoo_Plugin_Settings {
 	/**
-	 * Starter_Plugin_Admin The single instance of Starter_Plugin_Admin.
+	 * The single instance of Woo2Odoo_Plugin_Admin.
 	 * @var 	object
 	 * @access  private
 	 * @since 	1.0.0
@@ -30,13 +30,13 @@ final class Starter_Plugin_Settings {
 	private $has_select;
 
 	/**
-	 * Main Starter_Plugin_Settings Instance
+	 * Main Woo2Odoo_Plugin_Settings Instance
 	 *
-	 * Ensures only one instance of Starter_Plugin_Settings is loaded or can be loaded.
+	 * Ensures only one instance of Woo2Odoo_Plugin_Settings is loaded or can be loaded.
 	 *
 	 * @since 1.0.0
 	 * @static
-	 * @return Main Starter_Plugin_Settings instance
+	 * @return Main Woo2Odoo_Plugin_Settings instance
 	 */
 	public static function instance () {
 		if ( is_null( self::$instance ) ) {
@@ -74,7 +74,7 @@ final class Starter_Plugin_Settings {
 				$method = 'validate_field_' . $fields[ $k ]['type'];
 
 				if ( ! method_exists( $this, $method ) ) {
-					if ( true === (bool) apply_filters( 'starter_plugin_validate_field_' . $fields[ $k ]['type'] . '_use_default', true ) ) {
+					if ( true === (bool) apply_filters( 'woo2odoo_plugin_validate_field_' . $fields[ $k ]['type'] . '_use_default', true ) ) {
 						$method = 'validate_field_text';
 					} else {
 						$method = '';
@@ -83,10 +83,10 @@ final class Starter_Plugin_Settings {
 
 				// If we have an internal method for validation, filter and apply it.
 				if ( '' !== $method ) {
-					add_filter( 'starter_plugin_validate_field_' . $fields[ $k ]['type'], array( $this, $method ) );
+					add_filter( 'woo2odoo_plugin_validate_field_' . $fields[ $k ]['type'], array( $this, $method ) );
 				}
 
-				$method_output = apply_filters( 'starter_plugin_validate_field_' . $fields[ $k ]['type'], $v, $fields[ $k ] );
+				$method_output = apply_filters( 'woo2odoo_plugin_validate_field_' . $fields[ $k ]['type'], $v, $fields[ $k ] );
 
 				if ( ! is_wp_error( $method_output ) ) {
 					$input[ $k ] = $method_output;
@@ -193,15 +193,15 @@ final class Starter_Plugin_Settings {
 		}
 
 		// Construct the key.
-		$key = Starter_Plugin()->token . '-' . $args['section'] . '[' . $args['id'] . ']';
+		$key = Woo2Odoo_Plugin()->token . '-' . $args['section'] . '[' . $args['id'] . ']';
 
 		echo $this->$method( $key, $args ); /* phpcs:ignore */
 
 		// Output the description, if the current field allows it.
-		if ( isset( $args['type'] ) && ! in_array( $args['type'], (array) apply_filters( 'starter_plugin_no_description_fields', array( 'checkbox' ) ), true ) ) {
+		if ( isset( $args['type'] ) && ! in_array( $args['type'], (array) apply_filters( 'Woo2Odoo_plugin_no_description_fields', array( 'checkbox' ) ), true ) ) {
 			if ( isset( $args['description'] ) ) {
 				$description = $args['description'];
-				if ( in_array( $args['type'], (array) apply_filters( 'starter_plugin_new_line_description_fields', array( 'textarea', 'select' ) ), true ) ) {
+				if ( in_array( $args['type'], (array) apply_filters( 'Woo2Odoo_plugin_new_line_description_fields', array( 'textarea', 'select' ) ), true ) ) {
 					$description = wpautop( $description );
 				}
 				echo '<p class="description">' . wp_kses_post( $description ) . '</p>';
@@ -218,13 +218,12 @@ final class Starter_Plugin_Settings {
 	public function get_settings_sections () {
 		$settings_sections = array();
 
-		$settings_sections['standard-fields'] = __( 'Standard Fields', 'starter-plugin' );
-		$settings_sections['special-fields']  = __( 'Special Fields', 'starter-plugin' );
+		$settings_sections['connection-fields']  = __( 'Connection', 'woo2odoo_plugin' );
+		$settings_sections['export-fields'] = __( 'Export', 'woo2odoo_plugin' );
 		// Add your new sections below here.
 		// Admin tabs will be created for each section.
 		// Don't forget to add fields for the section in the get_settings_fields() function below
-
-		return (array) apply_filters( 'starter_plugin_settings_sections', $settings_sections );
+		return (array) apply_filters( 'Woo2Odoo_plugin_settings_sections', $settings_sections );
 	}
 
 	/**
@@ -241,59 +240,59 @@ final class Starter_Plugin_Settings {
 		switch ( $section ) {
 			case 'standard-fields':
 				$settings_fields['text']     = array(
-					'name'        => __( 'Example Text Input', 'starter-plugin' ),
+					'name'        => __( 'Example Text Input', 'woo2odoo_plugin' ),
 					'type'        => 'text',
 					'default'     => '',
 					'section'     => 'standard-fields',
-					'description' => __( 'Place the field description text here.', 'starter-plugin' ),
+					'description' => __( 'Place the field description text here.', 'woo2odoo_plugin' ),
 				);
 				$settings_fields['textarea'] = array(
-					'name'        => __( 'Example Textarea', 'starter-plugin' ),
+					'name'        => __( 'Example Textarea', 'woo2odoo_plugin' ),
 					'type'        => 'textarea',
 					'default'     => '',
 					'section'     => 'standard-fields',
-					'description' => __( 'Place the field description text here.', 'starter-plugin' ),
+					'description' => __( 'Place the field description text here.', 'woo2odoo_plugin' ),
 				);
 				$settings_fields['checkbox'] = array(
-					'name'        => __( 'Example Checkbox', 'starter-plugin' ),
+					'name'        => __( 'Example Checkbox', 'woo2odoo_plugin' ),
 					'type'        => 'checkbox',
 					'default'     => '',
 					'section'     => 'standard-fields',
-					'description' => __( 'Place the field description text here.', 'starter-plugin' ),
+					'description' => __( 'Place the field description text here.', 'woo2odoo_plugin' ),
 				);
 				$settings_fields['radio']    = array(
-					'name'        => __( 'Example Radio Buttons', 'starter-plugin' ),
+					'name'        => __( 'Example Radio Buttons', 'woo2odoo_plugin' ),
 					'type'        => 'radio',
 					'default'     => '',
 					'section'     => 'standard-fields',
 					'options'     => array(
-						'one'   => __( 'One', 'starter-plugin' ),
-						'two'   => __( 'Two', 'starter-plugin' ),
-						'three' => __( 'Three', 'starter-plugin' ),
+						'one'   => __( 'One', 'woo2odoo_plugin' ),
+						'two'   => __( 'Two', 'woo2odoo_plugin' ),
+						'three' => __( 'Three', 'woo2odoo_plugin' ),
 					),
-					'description' => __( 'Place the field description text here.', 'starter-plugin' ),
+					'description' => __( 'Place the field description text here.', 'woo2odoo_plugin' ),
 				);
 				$settings_fields['select']   = array(
-					'name'        => __( 'Example Select', 'starter-plugin' ),
+					'name'        => __( 'Example Select', 'woo2odoo_plugin' ),
 					'type'        => 'select',
 					'default'     => '',
 					'section'     => 'standard-fields',
 					'options'     => array(
-						'one'   => __( 'One', 'starter-plugin' ),
-						'two'   => __( 'Two', 'starter-plugin' ),
-						'three' => __( 'Three', 'starter-plugin' ),
+						'one'   => __( 'One', 'woo2odoo_plugin' ),
+						'two'   => __( 'Two', 'woo2odoo_plugin' ),
+						'three' => __( 'Three', 'woo2odoo_plugin' ),
 					),
-					'description' => __( 'Place the field description text here.', 'starter-plugin' ),
+					'description' => __( 'Place the field description text here.', 'woo2odoo_plugin' ),
 				);
 
 				break;
 			case 'special-fields':
 				$settings_fields['select_taxonomy'] = array(
-					'name'        => __( 'Example Taxonomy Selector', 'starter-plugin' ),
+					'name'        => __( 'Example Taxonomy Selector', 'woo2odoo_plugin' ),
 					'type'        => 'select_taxonomy',
 					'default'     => '',
 					'section'     => 'special-fields',
-					'description' => __( 'Place the field description text here.', 'starter-plugin' ),
+					'description' => __( 'Place the field description text here.', 'woo2odoo_plugin' ),
 				);
 
 				break;
@@ -302,7 +301,7 @@ final class Starter_Plugin_Settings {
 				break;
 		}
 
-		return (array) apply_filters( 'starter_plugin_settings_fields', $settings_fields );
+		return (array) apply_filters( 'Woo2Odoo_plugin_settings_fields', $settings_fields );
 	}
 
 	/**
@@ -467,7 +466,7 @@ final class Starter_Plugin_Settings {
 	 * @return  array Supported field type keys.
 	 */
 	public function get_supported_fields () {
-		return (array) apply_filters( 'starter_plugin_supported_fields', array( 'text', 'checkbox', 'radio', 'textarea', 'select', 'select_taxonomy' ) );
+		return (array) apply_filters( 'Woo2Odoo_plugin_supported_fields', array( 'text', 'checkbox', 'radio', 'textarea', 'select', 'select_taxonomy' ) );
 	}
 
 	/**
@@ -480,7 +479,7 @@ final class Starter_Plugin_Settings {
 	 * @return  mixed Returned value.
 	 */
 	public function get_value ( $key, $default, $section ) {
-		$values = get_option( 'starter-plugin-' . $section, array() );
+		$values = get_option( 'Woo2Odoo-plugin-' . $section, array() );
 
 		if ( is_array( $values ) && isset( $values[ $key ] ) ) {
 			$response = $values[ $key ];
@@ -510,7 +509,7 @@ final class Starter_Plugin_Settings {
 		if ( 0 < count( $sections ) ) {
 			foreach ( $sections as $k => $v ) {
 				$fields = $this->get_settings_fields( $v );
-				$values = get_option( 'starter-plugin-' . $v, array() );
+				$values = get_option( 'Woo2Odoo-plugin-' . $v, array() );
 
 				if ( is_array( $fields ) && 0 < count( $fields ) ) {
 					foreach ( $fields as $i => $j ) {
