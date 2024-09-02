@@ -1,21 +1,21 @@
 {
-    "name": "mattyza/starter-plugin",
+    "name": "slemos/woo2odoo",
     "description": "A starter WordPress plugin, ready for your next project.",
     "keywords": [
         "wordpress"
     ],
     "type": "wordpress-plugin",
-    "homepage": "https://github.com/mattyza/starter-plugin",
+    "homepage": "https://github.com/slemos/woo2odoo",
     "license": "GPL-2.0+",
     "authors": [
         {
-            "name": "Matt Cohen",
-            "homepage": "https://matty.blog/"
+            "name": "Sebastian Lemos",
+            "homepage": "https://github.com/slemos"
         }
     ],
     "support": {
-        "issues": "https://github.com/mattyza/starter-plugin/issues",
-        "source": "https://github.com/mattyza/starter-plugin/"
+        "issues": "https://github.com/slemos/woo2odoo/issues",
+        "source": "https://github.com/slemos/woo2odoo/"
     },
     "require-dev": {
         "dealerdirect/phpcodesniffer-composer-installer": "*",
@@ -23,7 +23,8 @@
         "phpcompatibility/php-compatibility": "*",
         "wp-coding-standards/wpcs": "*",
         "phpunit/phpunit": "^8",
-        "yoast/phpunit-polyfills": "^2.0"
+        "yoast/phpunit-polyfills": "^2.0",
+        "wp-cli/wp-cli-bundle": "^2.11"
     },
     "config": {
         "allow-plugins": {
