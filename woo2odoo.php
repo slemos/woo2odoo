@@ -39,7 +39,7 @@ function woo2odoo_missing_wc_notice() {
  * @since  1.0.0
  * @return object Woo2odoo_Plugin
  */
-function woo2odoo_plugin() {
+function woo2odoo() {
 	load_plugin_textdomain( 'woo2odoo', false, plugin_basename( dirname( __FILE__ ) ) . '/languages' );
 	
 	if ( ! class_exists( 'WooCommerce' ) ) {
@@ -49,4 +49,4 @@ function woo2odoo_plugin() {
 
 	return Woo2Odoo_Plugin::instance();
 }
-add_action( 'plugins_loaded', 'woo2odoo_plugin' );
+add_action( 'plugins_loaded', 'woo2odoo' );
