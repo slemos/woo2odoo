@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2024-08-30T21:50:23+00:00\n"
+"POT-Creation-Date: 2024-09-03T00:55:54+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.11.0\n"
 "X-Domain: woo2odoo-plugin\n"
@@ -37,4 +37,86 @@ msgstr ""
 #. Author URI of the plugin
 #: woo2odoo-plugin.php
 msgid "http://github.com/slemos"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-admin.php:68
+msgid "Woo2Odoo Plugin Settings"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-admin.php:68
+msgid "Woo2Odoo Plugin"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-admin.php:90
+msgid "Save Changes"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:224
+msgid "Connection"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:225
+msgid "Export"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:246
+msgid "Odoo URL"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:250
+msgid "URL to Odoo ERP."
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:253
+msgid "Odoo Username"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:257
+msgid "Odoo User Name."
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:260
+msgid "Odoo Password"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:264
+msgid "Odoo password for user."
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:267
+msgid "Example Radio Buttons"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:272
+#: classes/class-woo2odoo-plugin-settings.php:284
+msgid "One"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:273
+#: classes/class-woo2odoo-plugin-settings.php:285
+msgid "Two"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:274
+#: classes/class-woo2odoo-plugin-settings.php:286
+msgid "Three"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:276
+#: classes/class-woo2odoo-plugin-settings.php:288
+#: classes/class-woo2odoo-plugin-settings.php:298
+msgid "Place the field description text here."
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:279
+msgid "Example Select"
+msgstr ""
+
+#: classes/class-woo2odoo-plugin-settings.php:294
+msgid "Example Taxonomy Selector"
+msgstr ""
+
+#. translators: %s WC download URL link.
+#: woo2odoo-plugin.php:33
+msgid "Woo2odoo requires WooCommerce to be installed and active. You can download %s here."
 msgstr ""

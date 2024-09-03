@@ -1,5 +1,6 @@
 {
     "scripts": {
+        "wp-scripts": "wp-scripts",
         "wp-env": "wp-env",
         "composer": "wp-env run cli --env-cwd=wp-content/plugins/woo2odoo composer",
         "composer:tests-cli": "wp-env run tests-cli --env-cwd=wp-content/plugins/woo2odoo composer",

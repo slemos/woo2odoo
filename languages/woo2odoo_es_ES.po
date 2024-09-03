@@ -1,0 +1,57 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Woo2Odoo - WooCommerce to Odoo Integration 1.0.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/woo2odoo\n"
+"Last-Translator: Sebastián Lemos Satué <slemos.satue@gmail.com>\n"
+"Language-Team: Spanish <es@tp.org.es>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2024-09-02T21:55:36+00:00\n"
+"PO-Revision-Date: 2024-09-02 21:29-0300\n"
+"Language: es\n"
+"X-Generator: WP-CLI 2.11.0\n"
+"X-Domain: woo2odoo-plugin\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#. Plugin Name of the plugin
+#: woo2odoo-plugin.php
+msgid "Woo2Odoo - WooCommerce to Odoo Integration"
+msgstr "Woo2Odoo - Integración entre WooCommerce y Odoo"
+
+#. Plugin URI of the plugin
+#: woo2odoo-plugin.php
+msgid "http://github.com/slemos/woo2odoo"
+msgstr "http://github.com/slemos/woo2odoo"
+
+#. Description of the plugin
+#: woo2odoo-plugin.php
+msgid "WooCommerce to Odoo Integration plugin"
+msgstr "WooCommerce a Odoo Integración plugin"
+
+#. Author of the plugin
+#: woo2odoo-plugin.php
+msgid "Sebastian Lemos"
+msgstr "Sebastian Lemos"
+
+#. Author URI of the plugin
+#: woo2odoo-plugin.php
+msgid "http://github.com/slemos"
+msgstr "http://github.com/slemos"
+
+#: classes/class-woo2odoo-plugin-admin.php:68
+msgid "Woo2Odoo Plugin Settings"
+msgstr "Woo2Odoo Ajustes"
+
+#: classes/class-woo2odoo-plugin-admin.php:68
+msgid "Woo2Odoo Plugin"
+msgstr "Woo2Odoo Plugin"
+
+#: classes/class-woo2odoo-plugin-admin.php:90
+msgid "Save Changes"
+msgstr "Guardar Cambios"
+
+#. translators: %s WC download URL link.
+#: woo2odoo-plugin.php:33
+msgid "Woo2odoo requires WooCommerce to be installed and active. You can download %s here."
+msgstr "Woo2Odoo requiere WooCommerce instalado y activo. Usted puede descargarlo %s aquí."
