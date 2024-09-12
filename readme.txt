@@ -1,4 +1,4 @@
-=== Starter Plugin ===
+=== Woo2Odoo ===
 Contributors:
 Donate link:
 Tags:

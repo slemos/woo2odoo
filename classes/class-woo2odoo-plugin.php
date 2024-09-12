@@ -8,6 +8,7 @@
  * @package	Woo2Odoo_Plugin
  * @author Slemos
  */
+
 final class Woo2Odoo_Plugin {
 	/**
 	 * Woo2Odoo_Plugin The single instance of Woo2Odoo_Plugin.
@@ -47,7 +48,7 @@ final class Woo2Odoo_Plugin {
 	 * @access  public
 	 * @since   1.0.0
 	 */
-	public $plugin_path;
+	public string $plugin_path;
 
 	// Admin - Start
 	/**
@@ -56,34 +57,18 @@ final class Woo2Odoo_Plugin {
 	 * @access  public
 	 * @since   1.0.0
 	 */
-	public $admin;
+	public Woo2Odoo_Plugin_Admin $admin;
 
 	/**
-	 * The settings object.
+	 * The settings object for the Woo2Odoo plugin.
+	 *
 	 * @var     object
 	 * @access  public
 	 * @since   1.0.0
 	 */
-	public $settings;
+	public Woo2Odoo_Plugin_Settings $settings;
 	// Admin - End
 
-	// Post Types - Start
-	/**
-	 * The post types we're registering.
-	 * @var     array
-	 * @access  public
-	 * @since   1.0.0
-	 */
-	public $post_types = array();
-
-	/**
-	 * The taxonomies we're registering.
-	 * @var     array
-	 * @access  public
-	 * @since   1.0.0
-	 */
-	public $taxonomies = array();
-	// Post Types - End
 	/**
 	 * Constructor function.
 	 * @access  public

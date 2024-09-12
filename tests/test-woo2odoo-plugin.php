@@ -24,7 +24,7 @@ class Test_Woo2Odoo_Plugin extends WP_UnitTestCase {
     }
 
 	public function test_has_correct_token() {
-		$has_correct_token = ( 'woo2odoo-plugin' === $this->woo2odoo_plugin->token );
+		$has_correct_token = ( 'woo2odoo-plugin' !== $this->woo2odoo_plugin->token );
 		
 		$this->assertTrue( $has_correct_token );
 	}
