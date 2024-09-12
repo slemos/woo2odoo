@@ -1,8 +1,8 @@
 {
-    "name": "slemos/woo2odoo-plugin",
+    "name": "extension/woo2odoo",
     "description": "A starter WordPress plugin, ready for your next project.",
     "keywords": [
-        "wordpress"
+        "wordpress", "woocommerce", "odoo"
     ],
     "type": "wordpress-plugin",
     "homepage": "https://github.com/slemos/woo2odoo",
@@ -39,5 +39,11 @@
         "post-install-cmd": [
             "@install-codestandards"
         ]
+    },
+    "require": {
+        "ext-curl": "*",
+        "ext-zlib": "*",
+        "ext-mbstring": "*",
+        "winternet-studio/odoo-jsonrpc-client": "^1.2"
     }
 }

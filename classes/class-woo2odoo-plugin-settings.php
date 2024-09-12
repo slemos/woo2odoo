@@ -3,6 +3,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly
 }
 
+require_once 'class-odooclient.php';
+
 /**
  * Woo2Odoo_Plugin_Settings Class
  *
@@ -31,6 +33,8 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @since   1.0.0
 	 */
 	private $has_select;
+
+	private $odooclient;
 
 	/**
 	 * Main Woo2Odoo_Plugin_Settings Instance
@@ -196,7 +200,7 @@ final class Woo2Odoo_Plugin_Settings {
 		}
 
 		// Construct the key.
-		$key = Woo2Odoo_Plugin()->token . '-' . $args['section'] . '[' . $args['id'] . ']';
+		$key = Woo2Odoo_Plugin::instance()->token . '-' . $args['section'] . '[' . $args['id'] . ']';
 
 		echo $this->$method( $key, $args ); /* phpcs:ignore */
 
@@ -221,8 +225,8 @@ final class Woo2Odoo_Plugin_Settings {
 	public function get_settings_sections () {
 		$settings_sections = array();
 
-		$settings_sections['connection-fields']  = __( 'Connection', 'woo2odoo-plugin' );
-		$settings_sections['export-fields'] = __( 'Export', 'woo2odoo-plugin' );
+		$settings_sections['connection']  = __( 'Connection', 'woo2odoo-plugin' );
+		$settings_sections['export'] = __( 'Export', 'woo2odoo-plugin' );
 		// Add your new sections below here.
 		// Admin tabs will be created for each section.
 		// Don't forget to add fields for the section in the get_settings_fields() function below
@@ -241,60 +245,50 @@ final class Woo2Odoo_Plugin_Settings {
 		// Declare the default settings fields.
 
 		switch ( $section ) {
-			case 'connection-fields':
+			case 'connection':
 				$settings_fields['odoo_url']     = array(
 					'name'        => __( 'Odoo URL', 'woo2odoo-plugin' ),
 					'type'        => 'text',
 					'default'     => '',
-					'section'     => 'connection-fields',
-					'description' => __( 'URL to Odoo ERP.', 'woo2odoo-plugin' ),
+					'section'     => 'connection',
+					'description' => __( 'URL to Odoo', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['dbname']    = array(
+					'name'        => __( 'Database Name', 'woo2odoo-plugin' ),
+					'type'        => 'text',
+					'default'     => '',
+					'section'     => 'connection',
+					'description' => __( 'The Database Name for Odoo', 'woo2odoo-plugin' ),
 				);
 				$settings_fields['odoo_user'] = array(
 					'name'        => __( 'Odoo Username', 'woo2odoo-plugin' ),
 					'type'        => 'text',
 					'default'     => '',
-					'section'     => 'connection-fields',
-					'description' => __( 'Odoo User Name.', 'woo2odoo-plugin' ),
+					'section'     => 'connection',
+					'description' => __( 'Odoo User Name', 'woo2odoo-plugin' ),
 				);
 				$settings_fields['odoo_password'] = array(
 					'name'        => __( 'Odoo Password', 'woo2odoo-plugin' ),
 					'type'        => 'password',
 					'default'     => '',
-					'section'     => 'connection-fields',
-					'description' => __( 'Odoo password for user.', 'woo2odoo-plugin' ),
+					'section'     => 'connection',
+					'description' => __( 'Odoo password for user', 'woo2odoo-plugin' ),
 				);
-				$settings_fields['radio']    = array(
-					'name'        => __( 'Example Radio Buttons', 'woo2odoo-plugin' ),
-					'type'        => 'radio',
+				$settings_fields['odoo_connected'] = array(
+					'name'        => __( 'Odoo Connection', 'woo2odoo-plugin' ),
+					'type'        => 'connection',
 					'default'     => '',
-					'section'     => 'connection-fields',
-					'options'     => array(
-						'one'   => __( 'One', 'woo2odoo-plugin' ),
-						'two'   => __( 'Two', 'woo2odoo-plugin' ),
-						'three' => __( 'Three', 'woo2odoo-plugin' ),
-					),
-					'description' => __( 'Place the field description text here.', 'woo2odoo-plugin' ),
-				);
-				$settings_fields['select']   = array(
-					'name'        => __( 'Example Select', 'woo2odoo-plugin' ),
-					'type'        => 'select',
-					'default'     => '',
-					'section'     => 'connection-fields',
-					'options'     => array(
-						'one'   => __( 'One', 'woo2odoo-plugin' ),
-						'two'   => __( 'Two', 'woo2odoo-plugin' ),
-						'three' => __( 'Three', 'woo2odoo-plugin' ),
-					),
-					'description' => __( 'Place the field description text here.', 'woo2odoo-plugin' ),
+					'section'     => 'connection',
+					'description' => __( 'Odoo password for user', 'woo2odoo-plugin' ),
 				);
 
 				break;
-			case 'special-fields':
+			case 'export':
 				$settings_fields['text2'] = array(
 					'name'        => __( 'Example Taxonomy Selector', 'woo2odoo-plugin' ),
 					'type'        => 'text',
 					'default'     => '',
-					'section'     => 'special-fields',
+					'section'     => 'export',
 					'description' => __( 'Place the field description text here.', 'woo2odoo-plugin' ),
 				);
 
@@ -437,7 +431,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @return  array Supported field type keys.
 	 */
 	public function get_supported_fields () {
-		return (array) apply_filters( 'Woo2Odoo_plugin_supported_fields', array( 'text', 'checkbox', 'radio', 'textarea', 'select', 'password' ) );
+		return (array) apply_filters( 'Woo2Odoo_plugin_supported_fields', array( 'text', 'checkbox', 'radio', 'textarea', 'select', 'password', 'connection' ) );
 	}
 
 	/**
@@ -502,4 +496,32 @@ final class Woo2Odoo_Plugin_Settings {
 
 		return $response;
 	}
+
+	/**
+	 * Render HTML markup for the "connection" field type.
+	 * Try to check if the client is authenticated.
+	 * @access  protected
+	 * @since   6.0.0
+	 * @param   string $key  The unique ID of this field.
+	 * @param   array $args  Arguments used to construct this field.
+	 * @return  string       HTML markup for the field.
+	 */
+	protected function render_field_connection ( $key, $args ) {
+		$has_description = false;
+		$html            = '';
+		if ( isset( $args['description'] ) ) {
+			$has_description = true;
+			$html           .= '<div for="' . esc_attr( $key ) . '">' . "\n";
+		}
+		$authenticated = (new OdooClient())->authenticate();
+		if ( $authenticated ) {
+			$html .= '<span class="dashicons dashicons-yes-alt" style="color:green"></span>' . "\n";
+		} else {
+			$html .= '<span class="dashicons dashicons-no-alt" style="color:red"></span>' . "\n";
+		}
+		if ( $has_description ) {
+			$html .= wp_kses_post( $args['description'] ) . '</div>' . "\n";
+		}
+		return $html;
+	}	
 }

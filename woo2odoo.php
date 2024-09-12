@@ -1,12 +1,13 @@
 <?php
 /**
- * Plugin Name: Woo2Odoo - WooCommerce to Odoo Integration
+ * Plugin Name: Woo2Odoo
  * Plugin URI: http://github.com/slemos/woo2odoo
  * Description: WooCommerce to Odoo Integration plugin
  * Version: 1.0.0
  * Author: Sebastian Lemos
  * Author URI: http://github.com/slemos
  * Requires at least: 5.6.0
+ * Requires Plugins:  woocommerce
  * Tested up to: 5.6.0
  *
  * Text Domain: woo2odoo-plugin
@@ -22,6 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once 'classes/class-woo2odoo-plugin.php';
+require_once 'vendor/autoload.php';
 
 /**
  * WooCommerce fallback notice.

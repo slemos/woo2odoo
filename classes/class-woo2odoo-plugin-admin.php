@@ -12,6 +12,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * @package	Woo2Odoo_Plugin
  * @author Jeffikus
  */
+
+require_once 'class-woo2odoo-plugin.php';
+
 final class Woo2Odoo_Plugin_Admin {
 	/**
 	 * Woo2Odoo_Plugin_Admin The single instance of Woo2Odoo_Plugin_Admin.
@@ -76,7 +79,7 @@ final class Woo2Odoo_Plugin_Admin {
 	 */
 	public function settings_screen () {
 		global $title;
-		$sections = Woo2Odoo_Plugin()->settings->get_settings_sections();
+		$sections = Woo2Odoo_Plugin::instance()->settings->get_settings_sections();
 		$tab      = $this->get_current_tab( $sections );
 		?>
 		<div class="wrap woo2odoo-plugin-wrap">
@@ -101,7 +104,7 @@ final class Woo2Odoo_Plugin_Admin {
 	 * @return  void
 	 */
 	public function register_settings () {
-		$sections = Woo2Odoo_Plugin()->settings->get_settings_sections();
+		$sections = Woo2Odoo_Plugin::instance()->settings->get_settings_sections();
 		if ( 0 < count( $sections ) ) {
 			foreach ( $sections as $k => $v ) {
 				register_setting( 'woo2odoo-plugin-settings-' . sanitize_title_with_dashes( $k ), 'woo2odoo-plugin-' . $k, array( $this, 'validate_settings' ) );
@@ -119,14 +122,14 @@ final class Woo2Odoo_Plugin_Admin {
 	 */
 	public function render_settings ( $args ) {
 		$token  = $args['id'];
-		$fields = Woo2Odoo_Plugin()->settings->get_settings_fields( $token );
+		$fields = Woo2Odoo_Plugin::instance()->settings->get_settings_fields( $token );
 
 		if ( 0 < count( $fields ) ) {
 			foreach ( $fields as $k => $v ) {
 				$args 		= $v;
 				$args['id'] = $k;
 
-				add_settings_field( $k, $v['name'], array( Woo2Odoo_Plugin()->settings, 'render_field' ), 'woo2odoo-plugin-' . $token, $v['section'], $args );
+				add_settings_field( $k, $v['name'], array( Woo2Odoo_Plugin::instance()->settings, 'render_field' ), 'woo2odoo-plugin-' . $token, $v['section'], $args );
 			}
 		}
 	}
@@ -139,9 +142,9 @@ final class Woo2Odoo_Plugin_Admin {
 	 * @return  array        Validated data.
 	 */
 	public function validate_settings ( $input ) {
-		$sections = Woo2Odoo_Plugin()->settings->get_settings_sections();
+		$sections = Woo2Odoo_Plugin::instance()->settings->get_settings_sections();
 		$tab      = $this->get_current_tab( $sections );
-		return Woo2Odoo_Plugin()->settings->validate_settings( $input, $tab );
+		return Woo2Odoo_Plugin::instance()->settings->validate_settings( $input, $tab );
 	}
 
 	/**
