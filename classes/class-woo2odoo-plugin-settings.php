@@ -275,23 +275,61 @@ final class Woo2Odoo_Plugin_Settings {
 					'description' => __( 'Odoo password for user', 'woo2odoo-plugin' ),
 				);
 				$settings_fields['odoo_connected'] = array(
-					'name'        => __( 'Odoo Connection', 'woo2odoo-plugin' ),
+					'name'        => __( 'Connection Ok?', 'woo2odoo-plugin' ),
 					'type'        => 'connection',
 					'default'     => '',
 					'section'     => 'connection',
-					'description' => __( 'Odoo password for user', 'woo2odoo-plugin' ),
 				);
 
 				break;
 			case 'export':
-				$settings_fields['text2'] = array(
-					'name'        => __( 'Example Taxonomy Selector', 'woo2odoo-plugin' ),
-					'type'        => 'text',
+				$settings_fields['export_order'] = array(
+					'name'        => __( 'Export Orders', 'woo2odoo-plugin' ),
+					'type'        => 'checkbox',
 					'default'     => '',
 					'section'     => 'export',
-					'description' => __( 'Place the field description text here.', 'woo2odoo-plugin' ),
+					'description' => __( 'Export order on checkout?', 'woo2odoo-plugin' ),
 				);
-
+				$settings_fields['export_order_invoice'] = array(
+					'name'        => __( 'Export Invoice', 'woo2odoo-plugin' ),
+					'type'        => 'checkbox',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'Export invoice for paid orders?', 'woo2odoo-plugin' ),
+				);
+				// Get the company list in Odoo and populate the select field
+				$settings_fields['export_order_company'] = array(
+					'name'        => __( 'Company', 'woo2odoo-plugin' ),
+					'type'        => 'select',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'Select the company to export orders to', 'woo2odoo-plugin' ),
+					'options'     => $this->get_companies_select(),
+				);
+				// Get the journal list in Odoo and populate the select field
+				$settings_fields['export_order_journal'] = array(
+					'name'        => __( 'Journal', 'woo2odoo-plugin' ),
+					'type'        => 'select',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'Select the journal to export invoices to', 'woo2odoo-plugin' ),
+					'options'     => $this->get_journals_select(),
+				);
+				$settings_fields['export_order_use_journal_zero'] = array(
+					'name'        => __( 'Zero invoice journal', 'woo2odoo-plugin' ),
+					'type'        => 'checkbox',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'Export zero ammount invoices to other journal?', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['export_order_journal_zero'] = array(
+					'name'        => __( 'Zero ammount invoices journal', 'woo2odoo-plugin' ),
+					'type'        => 'select',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'Select the journal to export invoices to', 'woo2odoo-plugin' ),
+					'options'     => $this->get_journals_select(),
+				);
 				break;
 			default:
 				# code...
@@ -523,5 +561,42 @@ final class Woo2Odoo_Plugin_Settings {
 			$html .= wp_kses_post( $args['description'] ) . '</div>' . "\n";
 		}
 		return $html;
-	}	
+	}
+
+	private function get_companies_select() {
+		$companies = (new OdooClient())->search_read('res.company', null,  ['id', 'name'], null, 5);
+		//for each company, add to the select
+		foreach ($companies as $company) {
+			$companies_select[$company->id] = $company->name;
+		}
+
+		return $companies_select;
+	}
+
+	private function get_journals_select() {
+		//Check if there is a value setted for company
+		$company = $this->get_value('export_order_company', '', 'export');
+		if (empty($company)) {
+			return ['' => __('Select a company first', 'woo2odoo-plugin')];
+		}
+
+		$journals = (new OdooClient())->search_read('account.journal', [
+			[
+				'company_id',
+				'=',
+				(int) $company,
+			],
+			[
+				'type',
+				'=',
+				'sale',
+			],
+		],  ['id', 'name'], null, 5);
+		//for each journal, add to the select
+		foreach ($journals as $journal) {
+			$journals_select[$journal->id] = $journal->name;
+		}
+
+		return $journals_select;
+	}
 }

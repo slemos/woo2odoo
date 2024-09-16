@@ -1,4 +1,13 @@
 <?php
+/**
+ * OdooClientFactory
+ *
+ * @class       OdooClientFactory
+ * @version	1.0.0
+ * @package	Woo2Odoo_Plugin
+ * @category	Class
+ * @author slemos
+ */
 
 class OdooClientFactory
 {
