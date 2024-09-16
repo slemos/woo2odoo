@@ -43,6 +43,9 @@ final class Woo2Odoo_Plugin_Admin {
 
 		// Register the settings screen within WordPress.
 		add_action( 'admin_menu', array( $this, 'register_settings_screen' ) );
+
+		// Handle custom button click
+        add_action( 'admin_post_woo2odoo_custom_action', array( $this, 'handle_custom_action' ) );
 	}
 
 	/**
@@ -93,6 +96,11 @@ final class Woo2Odoo_Plugin_Admin {
 					submit_button( __( 'Save Changes', 'woo2odoo-plugin' ) );
 				?>
 			</form>
+			<form method="post" action="<?php echo admin_url( 'admin-post.php' ); ?>">
+                <input type="hidden" name="action" value="woo2odoo_custom_action">
+                <input type="hidden" name="woo2odoo_custom_action" value="1">
+                <?php submit_button( __( 'Custom Action', 'woo2odoo-plugin' ), 'secondary' ); ?>
+            </form>
 		</div><!--/.wrap-->
 		<?php
 	}
@@ -240,4 +248,25 @@ final class Woo2Odoo_Plugin_Admin {
 
 		return (array) apply_filters( 'woo2odoo_plugin_get_admin_header_data', $response );
 	}
+
+	public function handle_custom_action() {
+        if ( isset( $_POST['woo2odoo_custom_action'] ) && $_POST['woo2odoo_custom_action'] == '1' ) {
+            $this->delete_cache();
+            add_settings_error(
+                'woo2odoo_messages',
+                'woo2odoo_message',
+                __( 'Custom action executed successfully.', 'woo2odoo-plugin' ),
+                'updated'
+            );
+            set_transient('settings_errors', get_settings_errors(), 30);
+            wp_redirect( admin_url( 'options-general.php?page=woo2odoo-plugin' ) );
+            exit;
+        }
+    }
+
+	public function delete_cache() {
+        // Your custom logic here
+        //update_option('woo2odoo_custom_option', 'custom_value');
+		$transients = wp_cache_flush_group( 'woo2odoo' );
+    }
 }
