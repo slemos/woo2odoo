@@ -18,4 +18,11 @@ npm run build
 wp-env start
 ```
 
+### Run tests
+
+``
+npm run wp-env run -- --env-cwd=wp-content/plugins/woo2odoo wordpress ./vendor/bin/phpunit
+``
+
+
 Visit the added page at http://localhost:8888/wp-admin/admin.php?page=wc-admin&path=%2Fwoo2odoo.

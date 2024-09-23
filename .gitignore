@@ -6,4 +6,6 @@ bin/
 *.log
 .vscode
 wordpress/
+woocommerce/
 .local/*
+.env
