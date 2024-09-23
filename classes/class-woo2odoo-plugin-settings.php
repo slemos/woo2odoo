@@ -227,6 +227,7 @@ final class Woo2Odoo_Plugin_Settings {
 
 		$settings_sections['connection']  = __( 'Connection', 'woo2odoo-plugin' );
 		$settings_sections['export'] = __( 'Export', 'woo2odoo-plugin' );
+		$settings_sections['tools'] = __( 'Tools', 'woo2odoo-plugin' );
 		// Add your new sections below here.
 		// Admin tabs will be created for each section.
 		// Don't forget to add fields for the section in the get_settings_fields() function below

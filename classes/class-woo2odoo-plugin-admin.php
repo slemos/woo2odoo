@@ -45,7 +45,10 @@ final class Woo2Odoo_Plugin_Admin {
 		add_action( 'admin_menu', array( $this, 'register_settings_screen' ) );
 
 		// Handle custom button click
-        add_action( 'admin_post_woo2odoo_custom_action', array( $this, 'handle_custom_action' ) );
+        add_action( 'admin_post_woo2odoo_delete_cache', array( $this, 'handle_delete_cache' ) );
+
+		// Handle custom button click
+		add_action( 'admin_post_woo2odoo_sync_order', array( $this, 'handle_sync_order' ) );
 	}
 
 	/**
@@ -84,11 +87,12 @@ final class Woo2Odoo_Plugin_Admin {
 		global $title;
 		$sections = Woo2Odoo_Plugin::instance()->settings->get_settings_sections();
 		$tab      = $this->get_current_tab( $sections );
+		//xdebug_break();
 		?>
 		<div class="wrap woo2odoo-plugin-wrap">
 			<?php
 				$this->admin_header_html( $sections, $title );
-			?>
+			if ( 'tools' !== $tab ) { ?>
 			<form action="options.php" method="post">
 				<?php
 					settings_fields( 'woo2odoo-plugin-settings-' . $tab );
@@ -96,11 +100,33 @@ final class Woo2Odoo_Plugin_Admin {
 					submit_button( __( 'Save Changes', 'woo2odoo-plugin' ) );
 				?>
 			</form>
-			<form method="post" action="<?php echo admin_url( 'admin-post.php' ); ?>">
-                <input type="hidden" name="action" value="woo2odoo_custom_action">
-                <input type="hidden" name="woo2odoo_custom_action" value="1">
-                <?php submit_button( __( 'Custom Action', 'woo2odoo-plugin' ), 'secondary' ); ?>
-            </form>
+			<?php } else { ?>
+			<h2><?php _e( 'Tools', 'woo2odoo-plugin' ); ?></h2>
+			<table class="form-table" role="presentation">
+				<tbody>
+					<tr>
+						<th scope="row"><?php _e('Delete cache?', 'woo2odoo-plugin') ?></th>
+						<td><p><?php _e('This is useful if you are experiencing issues with the plugin.', 'woo2odoo-plugin') ?></p>
+							<form method="post" action="<?php echo admin_url( 'admin-post.php' ); ?>">
+								<input type="hidden" name="action" value="woo2odoo_delete_cache">
+								<input type="hidden" name="woo2odoo_delete_cache" value="1">
+								<?php submit_button( __( 'Delete cache', 'woo2odoo-plugin' ), 'secondary' ); ?>
+							</form>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php _e('Sync order:', 'woo2odoo-plugin') ?></th>
+						<td>
+							<form method="post" action="<?php echo admin_url( 'admin-post.php' ); ?>">
+								<input type="hidden" name="action" value="woo2odoo_sync_order">
+								<input type="hidden" name="woo2odoo_sync_order" value="1">
+								<input id="woo2odoo-plugin-tools[order]" name="woo2odoo-plugin-tools[order]" size="40" type="text" value="">
+								<?php submit_button( __( 'Sync', 'woo2odoo-plugin' ), 'secondary' ); ?>
+							</form>
+						</td>
+				</tbody>
+			</table>
+			<?php } ?>
 		</div><!--/.wrap-->
 		<?php
 	}
@@ -249,24 +275,49 @@ final class Woo2Odoo_Plugin_Admin {
 		return (array) apply_filters( 'woo2odoo_plugin_get_admin_header_data', $response );
 	}
 
-	public function handle_custom_action() {
-        if ( isset( $_POST['woo2odoo_custom_action'] ) && $_POST['woo2odoo_custom_action'] == '1' ) {
+	public function handle_delete_cache() {
+        if ( isset( $_POST['woo2odoo_delete_cache'] ) && $_POST['woo2odoo_delete_cache'] == '1' ) {
             $this->delete_cache();
-            add_settings_error(
+			add_settings_error(
+				'woo2odoo_messages',
+				'woo2odoo_message',
+				__( 'Cache deleted successfully.', 'woo2odoo-plugin' ),
+				'updated'
+			);
+			set_transient('settings_errors', get_settings_errors(), 30);
+			wp_redirect( add_query_arg( array( 'settings-updated' => 'true' ), admin_url( 'options-general.php?page=woo2odoo-plugin' ) ) );
+			exit;
+        }
+    }
+
+	public function handle_sync_order() {
+        if ( isset( $_POST['woo2odoo_sync_order'] ) && $_POST['woo2odoo_sync_order'] == '1' && isset( $_POST['woo2odoo-plugin-tools']['order'] ) && ! empty( $_POST['woo2odoo-plugin-tools']['order'] ) ) {
+			// Pass the order id to the order_sync function.
+			$this->order_sync( sanitize_text_field( $_POST['woo2odoo-plugin-tools']['order'] ) );
+			add_settings_error(
                 'woo2odoo_messages',
                 'woo2odoo_message',
-                __( 'Custom action executed successfully.', 'woo2odoo-plugin' ),
+                __( 'Order', 'woo2odoo-plugin' ) . ' ' . sanitize_text_field( $_POST['woo2odoo-plugin-tools']['order'] ) . ' ' . __( 'synced successfully.', 'woo2odoo-plugin' ),
                 'updated'
             );
-            set_transient('settings_errors', get_settings_errors(), 30);
-            wp_redirect( admin_url( 'options-general.php?page=woo2odoo-plugin' ) );
+            set_transient( 'settings_errors', get_settings_errors(), 30 );
+            wp_redirect( add_query_arg( array( 'settings-updated' => 'true' ), admin_url( 'options-general.php?page=woo2odoo-plugin' ) ) );
             exit;
         }
     }
 
 	public function delete_cache() {
-        // Your custom logic here
-        //update_option('woo2odoo_custom_option', 'custom_value');
-		$transients = wp_cache_flush_group( 'woo2odoo' );
+		wp_cache_flush_group( 'woo2odoo' );
     }
+
+	public function order_sync($order_id) {
+		wc_get_logger()->info('Starting Order Sync', array(
+			'order_id' => $order_id
+		));
+		$odooclient = new OdooClient();
+		$odooclient->order_sync($order_id);
+		wc_get_logger()->info('Order Sync Complete', array(
+			'order_id' => $order_id
+		));
+	}
 }

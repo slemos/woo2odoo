@@ -4,6 +4,10 @@
  *
  * @package Starter_Plugin
  */
+require_once dirname(__DIR__) . '/vendor/autoload.php';
+
+$dotenv = Dotenv\Dotenv::createImmutable(dirname(__DIR__));
+$dotenv->load();
 
 $_tests_dir = getenv( 'WP_TESTS_DIR' );
 
@@ -22,6 +26,7 @@ require_once "{$_tests_dir}/includes/functions.php";
  * Manually load the plugin being tested.
  */
 function _manually_load_plugin() {
+	require_once( '/var/www/html/wp-content/plugins/woocommerce/woocommerce.php' );
 	require dirname( dirname( __FILE__ ) ) . '/woo2odoo.php';
 }
 
