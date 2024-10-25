@@ -3,18 +3,19 @@
  * Main Woo2Odoo_Plugin Class
  *
  * @class Woo2Odoo_Plugin
- * @version	1.0.0
+ * @version 1.0.0
  * @since 1.0.0
- * @package	Woo2Odoo_Plugin
+ * @package Woo2Odoo_Plugin
  * @author Slemos
  */
+namespace Woo2Odoo;
 
 final class Woo2Odoo_Plugin {
 	/**
 	 * Woo2Odoo_Plugin The single instance of Woo2Odoo_Plugin.
-	 * @var 	object
+	 * @var     object
 	 * @access  private
-	 * @since 	1.0.0
+	 * @since   1.0.0
 	 */
 	private static $instance = null;
 
@@ -74,7 +75,7 @@ final class Woo2Odoo_Plugin {
 	 * @access  public
 	 * @since   1.0.0
 	 */
-	public function __construct () {
+	public function __construct() {
 		$this->token       = 'woo2odoo-plugin';
 		$this->plugin_url  = plugin_dir_url( __FILE__ );
 		$this->plugin_path = plugin_dir_path( __FILE__ );
@@ -106,7 +107,7 @@ final class Woo2Odoo_Plugin {
 	 * @see Woo2Odoo_Plugin()
 	 * @return Main Woo2Odoo_Plugin instance
 	 */
-	public static function instance () {
+	public static function instance() {
 		if ( is_null( self::$instance ) ) {
 			self::$instance = new self();
 		}
@@ -127,21 +128,21 @@ final class Woo2Odoo_Plugin {
 	 * @access public
 	 * @since 1.0.0
 	 */
-	public function __clone () {}
+	public function __clone() {}
 
 	/**
 	 * Unserializing instances of this class is forbidden.
 	 * @access public
 	 * @since 1.0.0
 	 */
-	public function __wakeup () {}
+	public function __wakeup() {}
 
 	/**
 	 * Installation. Runs on activation.
 	 * @access  public
 	 * @since   1.0.0
 	 */
-	public function install () {
+	public function install() {
 		$this->log_version_number();
 	}
 
@@ -150,7 +151,7 @@ final class Woo2Odoo_Plugin {
 	 * @access  private
 	 * @since   1.0.0
 	 */
-	private function log_version_number () {
+	private function log_version_number() {
 		// Log the version number.
 		update_option( $this->token . '-version', $this->version );
 	}

@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Woo2Odoo
- * Plugin URI: http://github.com/slemos/woo2odoo
+ * Plugin URI: http://github.com/slemos/woo2odoo_main_instance
  * Description: WooCommerce to Odoo Integration plugin
  * Version: 1.0.0
  * Author: Sebastian Lemos
@@ -10,13 +10,15 @@
  * Requires Plugins:  woocommerce
  * Tested up to: 5.6.0
  *
- * Text Domain: woo2odoo-plugin
+ * Text Domain: woo2odoo_main_instance-plugin
  * Domain Path: /languages/
  *
  * @package Woo2Odoo
- * @category Core
+ * @category Plugin
  * @author slemos
  */
+
+namespace Woo2Odoo;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly
@@ -32,7 +34,7 @@ require_once 'vendor/autoload.php';
  */
 function woo2odoo_missing_wc_notice() {
 	/* translators: %s WC download URL link. */
-	echo '<div class="error"><p><strong>' . sprintf( esc_html__( 'Woo2odoo requires WooCommerce to be installed and active. You can download %s here.', 'woo2odoo-plugin' ), '<a href="https://woo.com/" target="_blank">WooCommerce</a>' ) . '</strong></p></div>';
+	echo '<div class="error"><p><strong>' . sprintf( esc_html__( 'Woo2odoo requires WooCommerce to be installed and active. You can download %s here.', 'woo2odoo_main_instance-plugin' ), '<a href="https://woo.com/" target="_blank">WooCommerce</a>' ) . '</strong></p></div>';
 }
 
 /**
@@ -41,9 +43,9 @@ function woo2odoo_missing_wc_notice() {
  * @since  1.0.0
  * @return object Woo2odoo_Plugin
  */
-function woo2odoo() {
-	load_plugin_textdomain( 'woo2odoo', false, plugin_basename( dirname( __FILE__ ) ) . '/languages' );
-	
+function woo2odoo_main_instance() {
+	load_plugin_textdomain( 'woo2odoo_main_instance', false, plugin_basename( __DIR__ ) . '/languages' );
+
 	if ( ! class_exists( 'WooCommerce' ) ) {
 		add_action( 'admin_notices', 'woo2odoo_missing_wc_notice' );
 		return;
@@ -51,4 +53,4 @@ function woo2odoo() {
 
 	return Woo2Odoo_Plugin::instance();
 }
-add_action( 'plugins_loaded', 'woo2odoo' );
+add_action( 'plugins_loaded', 'Woo2Odoo\woo2odoo_main_instance' );

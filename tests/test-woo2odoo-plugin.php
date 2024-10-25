@@ -4,7 +4,7 @@
  *
  * @package Woo2Odoo_Plugin
  */
-
+use Woo2Odoo\Woo2Odoo_Plugin;
 /**
  * Sample test case.
  */

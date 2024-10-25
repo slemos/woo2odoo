@@ -2,19 +2,33 @@
 <ruleset name="WordPress Coding Standards">
 	<description>WooCommerce extension PHP_CodeSniffer ruleset.</description>
 
+
 	<!-- Exclude paths -->
 	<exclude-pattern>tests/</exclude-pattern>
 	<exclude-pattern>*/node_modules/*</exclude-pattern>
 	<exclude-pattern>*/vendor/*</exclude-pattern>
 	<exclude-pattern>*.js</exclude-pattern>
+	<exclude-pattern>wordpress/*</exclude-pattern>
+	<exclude-pattern>woocommerce/*</exclude-pattern>
+	<exclude-pattern>.local/*</exclude-pattern>
 	<!-- Configs -->
 	<config name="minimum_supported_wp_version" value="4.7" />
-	<config name="testVersion" value="5.6-" />
+	<config name="testVersion" value="7.4" />
+	<!-- Show progress, show the error codes for each message (source). -->
+	<arg value="ps" />
+	<!-- Check up to 8 files simultaneously. -->
+	<arg name="parallel" value="8" />
 
 	<!-- Rules -->
+	<rule ref="PHPCompatibilityWP"/>
 	<rule ref="WordPress-Extra">
 		<exclude name="WordPress.WhiteSpace" />
+
 	</rule>
+    <rule ref="SlevomatCodingStandard.Namespaces.ReferenceUsedNamesOnly"/>
+	<rule ref="SlevomatCodingStandard.Classes.ClassConstantVisibility"/>
+	<rule ref="SlevomatCodingStandard.Variables.UnusedVariable"/>
+	<rule ref="PEAR.NamingConventions.ValidClassName"/>
 
 	<rule ref="PHPCompatibility">
 		<exclude-pattern>tests/</exclude-pattern>

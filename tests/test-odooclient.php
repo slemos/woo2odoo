@@ -1,13 +1,14 @@
 <?php
 
 use PHPUnit\Framework\TestCase;
+use Woo2Odoo\Woo2Odoo_Client;
 
 class OdooClientTest extends TestCase {
 
     private $odooClient;
 
     protected function setUp(): void {
-        require_once './classes/class-odooclient.php';
+        require_once './classes/class-woo2odoo-client.php';
 
         // Retrieve values from environment variables
         $odoo_url = $_ENV['ODOO_URL'];
@@ -33,11 +34,11 @@ class OdooClientTest extends TestCase {
             'export_order_journal_zero' => '2'
         ));
 
-        $this->odooClient = new OdooClient();
+        $this->odooClient = new Woo2odoo_Client();
     }
 
     public function testConstructor() {
-        $this->assertInstanceOf(OdooClient::class, $this->odooClient);
+        $this->assertInstanceOf(Woo2odoo_Client::class, $this->odooClient);
         $this->assertNotNull($this->odooClient->default_mapping);
     }
 
@@ -95,9 +96,20 @@ class OdooClientTest extends TestCase {
                 'phone' => '555-555-5556'
             ]]
         ]);
+        $order->method('get_user')->willReturn( $user );
 
-        $result = $this->odooClient->get_customer_data($user, $order);
+        $result = $this->odooClient->get_customer_data( $order );
         $this->assertIsArray($result);
+        $this->assertIsNumeric($result['id']);
+        $this->assertIsNumeric($result['invoice_id']);
+        $this->assertIsNumeric($result['shipping_id']);
+    }
+
+    public function testFormatRut() {
+        $result = $this->odooClient->format_rut('12345678');
+        $this->assertEquals('1234567-8', $result);
+        $result = $this->odooClient->format_rut('1.23.4.56-78');
+        $this->assertEquals('1234567-8', $result);
     }
 
     public function testGetStateAndCountryCodes() {
