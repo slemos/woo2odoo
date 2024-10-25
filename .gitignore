@@ -9,3 +9,6 @@ wordpress/
 woocommerce/
 .local/*
 .env
+wp
+composer.lock
+

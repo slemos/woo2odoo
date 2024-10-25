@@ -1,28 +1,31 @@
 <?php
-if ( ! defined( 'ABSPATH' ) ) {
-	exit; // Exit if accessed directly
-}
-
-require_once 'class-odooclient.php';
-
 /**
  * Woo2Odoo_Plugin_Settings Class
  *
  * Text Domain: woo2odoo-plugin
  * Domain Path: /languages/
- * 
+ *
  * @class Woo2Odoo_Plugin_Settings
- * @version	1.0.0
+ * @version 1.0.0
  * @since 1.0.0
- * @package	Woo2Odoo_Plugin
+ * @package Woo2Odoo_Plugin
  * @author Jeffikus
  */
+namespace Woo2Odoo;
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit; // Exit if accessed directly
+}
+
+require_once 'class-woo2odoo-client.php';
+
+// phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores
 final class Woo2Odoo_Plugin_Settings {
 	/**
 	 * The single instance of Woo2Odoo_Plugin_Admin.
-	 * @var 	object
+	 * @var     object
 	 * @access  private
-	 * @since 	1.0.0
+	 * @since   1.0.0
 	 */
 	private static $instance = null;
 
@@ -45,7 +48,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @static
 	 * @return Main Woo2Odoo_Plugin_Settings instance
 	 */
-	public static function instance () {
+	public static function instance() {
 		if ( is_null( self::$instance ) ) {
 			self::$instance = new self();
 		}
@@ -57,7 +60,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @access  public
 	 * @since   1.0.0
 	 */
-	public function __construct () {
+	public function __construct() {
 	}
 
 	/**
@@ -68,7 +71,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @param   string $section field section.
 	 * @return  array        Validated data.
 	 */
-	public function validate_settings ( $input, $section ) {
+	public function validate_settings( $input, $section ) {
 		if ( is_array( $input ) && 0 < count( $input ) ) {
 			$fields = $this->get_settings_fields( $section );
 
@@ -81,7 +84,7 @@ final class Woo2Odoo_Plugin_Settings {
 				$method = 'validate_field_' . $fields[ $k ]['type'];
 
 				if ( ! method_exists( $this, $method ) ) {
-					if ( true === (bool) apply_filters( 'woo2odoo-plugin_validate_field_' . $fields[ $k ]['type'] . '_use_default', true ) ) {
+					if ( true === (bool) apply_filters( 'woo2odoo_plugin_validate_field_' . $fields[ $k ]['type'] . '_use_default', true ) ) {
 						$method = 'validate_field_text';
 					} else {
 						$method = '';
@@ -90,10 +93,10 @@ final class Woo2Odoo_Plugin_Settings {
 
 				// If we have an internal method for validation, filter and apply it.
 				if ( '' !== $method ) {
-					add_filter( 'woo2odoo-plugin_validate_field_' . $fields[ $k ]['type'], array( $this, $method ) );
+					add_filter( 'woo2odoo_plugin_validate_field_' . $fields[ $k ]['type'], array( $this, $method ) );
 				}
 
-				$method_output = apply_filters( 'woo2odoo-plugin_validate_field_' . $fields[ $k ]['type'], $v, $fields[ $k ] );
+				$method_output = apply_filters( 'woo2odoo_plugin_validate_field_' . $fields[ $k ]['type'], $v, $fields[ $k ] );
 
 				if ( ! is_wp_error( $method_output ) ) {
 					$input[ $k ] = $method_output;
@@ -109,7 +112,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @since   6.0.0
 	 * @return  void
 	 */
-	public function validate_field_text ( $v ) {
+	public function validate_field_text( $v ) {
 		return (string) wp_kses_post( $v );
 	}
 
@@ -119,7 +122,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @since   6.0.0
 	 * @return  void
 	 */
-	public function validate_field_textarea ( $v ) {
+	public function validate_field_textarea( $v ) {
 		// Allow iframe, object and embed tags in textarea fields.
 		$allowed           = wp_kses_allowed_html( 'post' );
 		$allowed['iframe'] = array(
@@ -157,7 +160,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @param  string $v
 	 * @return string
 	 */
-	public function validate_field_checkbox ( $v ) {
+	public function validate_field_checkbox( $v ) {
 		if ( 'true' !== $v ) {
 			return 'false';
 		} else {
@@ -172,7 +175,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @param  string $v
 	 * @return string
 	 */
-	public function validate_field_url ( $v ) {
+	public function validate_field_url( $v ) {
 		return trim( esc_url( $v ) );
 	}
 
@@ -183,7 +186,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @param   array $args The field parameters.
 	 * @return  void
 	 */
-	public function render_field ( $args ) {
+	public function render_field( $args ) {
 		if ( ! in_array( $args['type'], $this->get_supported_fields(), true ) ) {
 			return ''; // Supported field type sanity check.
 		}
@@ -205,10 +208,10 @@ final class Woo2Odoo_Plugin_Settings {
 		echo $this->$method( $key, $args ); /* phpcs:ignore */
 
 		// Output the description, if the current field allows it.
-		if ( isset( $args['type'] ) && ! in_array( $args['type'], (array) apply_filters( 'Woo2Odoo_plugin_no_description_fields', array( 'checkbox' ) ), true ) ) {
+		if ( isset( $args['type'] ) && ! in_array( $args['type'], (array) apply_filters( 'woo2odoo_plugin_no_description_fields', array( 'checkbox' ) ), true ) ) {
 			if ( isset( $args['description'] ) ) {
 				$description = $args['description'];
-				if ( in_array( $args['type'], (array) apply_filters( 'Woo2Odoo_plugin_new_line_description_fields', array( 'textarea', 'select' ) ), true ) ) {
+				if ( in_array( $args['type'], (array) apply_filters( 'woo2odoo_plugin_new_line_description_fields', array( 'textarea', 'select' ) ), true ) ) {
 					$description = wpautop( $description );
 				}
 				echo '<p class="description">' . wp_kses_post( $description ) . '</p>';
@@ -222,16 +225,16 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @since   1.0.0
 	 * @return  array        Settings fields.
 	 */
-	public function get_settings_sections () {
+	public function get_settings_sections() {
 		$settings_sections = array();
 
-		$settings_sections['connection']  = __( 'Connection', 'woo2odoo-plugin' );
-		$settings_sections['export'] = __( 'Export', 'woo2odoo-plugin' );
-		$settings_sections['tools'] = __( 'Tools', 'woo2odoo-plugin' );
+		$settings_sections['connection'] = __( 'Connection', 'woo2odoo_plugin' );
+		$settings_sections['export']     = __( 'Export', 'woo2odoo_plugin' );
+		$settings_sections['tools']      = __( 'Tools', 'woo2odoo_plugin' );
 		// Add your new sections below here.
 		// Admin tabs will be created for each section.
 		// Don't forget to add fields for the section in the get_settings_fields() function below
-		return (array) apply_filters( 'Woo2Odoo_plugin_settings_sections', $settings_sections );
+		return (array) apply_filters( 'woo2odoo_plugin_settings_sections', $settings_sections );
 	}
 
 	/**
@@ -241,34 +244,34 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @since   1.0.0
 	 * @return  array        Settings fields.
 	 */
-	public function get_settings_fields ( $section ) {
+	public function get_settings_fields( $section ) {
 		$settings_fields = array();
 		// Declare the default settings fields.
 
 		switch ( $section ) {
 			case 'connection':
-				$settings_fields['odoo_url']     = array(
+				$settings_fields['odoo_url']       = array(
 					'name'        => __( 'Odoo URL', 'woo2odoo-plugin' ),
 					'type'        => 'text',
 					'default'     => '',
 					'section'     => 'connection',
 					'description' => __( 'URL to Odoo', 'woo2odoo-plugin' ),
 				);
-				$settings_fields['dbname']    = array(
+				$settings_fields['dbname']         = array(
 					'name'        => __( 'Database Name', 'woo2odoo-plugin' ),
 					'type'        => 'text',
 					'default'     => '',
 					'section'     => 'connection',
 					'description' => __( 'The Database Name for Odoo', 'woo2odoo-plugin' ),
 				);
-				$settings_fields['odoo_user'] = array(
+				$settings_fields['odoo_user']      = array(
 					'name'        => __( 'Odoo Username', 'woo2odoo-plugin' ),
 					'type'        => 'text',
 					'default'     => '',
 					'section'     => 'connection',
 					'description' => __( 'Odoo User Name', 'woo2odoo-plugin' ),
 				);
-				$settings_fields['odoo_password'] = array(
+				$settings_fields['odoo_password']  = array(
 					'name'        => __( 'Odoo Password', 'woo2odoo-plugin' ),
 					'type'        => 'password',
 					'default'     => '',
@@ -276,15 +279,15 @@ final class Woo2Odoo_Plugin_Settings {
 					'description' => __( 'Odoo password for user', 'woo2odoo-plugin' ),
 				);
 				$settings_fields['odoo_connected'] = array(
-					'name'        => __( 'Connection Ok?', 'woo2odoo-plugin' ),
-					'type'        => 'connection',
-					'default'     => '',
-					'section'     => 'connection',
+					'name'    => __( 'Connection Ok?', 'woo2odoo-plugin' ),
+					'type'    => 'connection',
+					'default' => '',
+					'section' => 'connection',
 				);
 
 				break;
 			case 'export':
-				$settings_fields['export_order'] = array(
+				$settings_fields['export_order']         = array(
 					'name'        => __( 'Export Orders', 'woo2odoo-plugin' ),
 					'type'        => 'checkbox',
 					'default'     => '',
@@ -308,7 +311,7 @@ final class Woo2Odoo_Plugin_Settings {
 					'options'     => $this->get_companies_select(),
 				);
 				// Get the journal list in Odoo and populate the select field
-				$settings_fields['export_order_journal'] = array(
+				$settings_fields['export_order_journal']          = array(
 					'name'        => __( 'Journal', 'woo2odoo-plugin' ),
 					'type'        => 'select',
 					'default'     => '',
@@ -323,7 +326,7 @@ final class Woo2Odoo_Plugin_Settings {
 					'section'     => 'export',
 					'description' => __( 'Export zero ammount invoices to other journal?', 'woo2odoo-plugin' ),
 				);
-				$settings_fields['export_order_journal_zero'] = array(
+				$settings_fields['export_order_journal_zero']     = array(
 					'name'        => __( 'Zero ammount invoices journal', 'woo2odoo-plugin' ),
 					'type'        => 'select',
 					'default'     => '',
@@ -337,7 +340,7 @@ final class Woo2Odoo_Plugin_Settings {
 				break;
 		}
 
-		return (array) apply_filters( 'Woo2Odoo_plugin_settings_fields', $settings_fields );
+		return (array) apply_filters( 'woo2odoo_plugin_settings_fields', $settings_fields );
 	}
 
 	/**
@@ -348,7 +351,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @param   array $args  Arguments used to construct this field.
 	 * @return  string       HTML markup for the field.
 	 */
-	protected function render_field_text ( $key, $args ) {
+	protected function render_field_text( $key, $args ) {
 		$html = '<input id="' . esc_attr( $key ) . '" name="' . esc_attr( $key ) . '" size="40" type="text" value="' . esc_attr( $this->get_value( $args['id'], $args['default'], $args['section'] ) ) . '" />' . "\n";
 		return $html;
 	}
@@ -361,7 +364,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @param   array $args  Arguments used to construct this field.
 	 * @return  string       HTML markup for the field.
 	 */
-	protected function render_field_password ( $key, $args ) {
+	protected function render_field_password( $key, $args ) {
 		$html = '<input id="' . esc_attr( $key ) . '" name="' . esc_attr( $key ) . '" size="40" type="password" value="' . esc_attr( $this->get_value( $args['id'], $args['default'], $args['section'] ) ) . '" />' . "\n";
 		return $html;
 	}
@@ -374,7 +377,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @param   array $args  Arguments used to construct this field.
 	 * @return  string       HTML markup for the field.
 	 */
-	protected function render_field_radio ( $key, $args ) {
+	protected function render_field_radio( $key, $args ) {
 		$html = '';
 		if ( isset( $args['options'] ) && ( 0 < count( (array) $args['options'] ) ) ) {
 			$html = '';
@@ -393,7 +396,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @param   array $args  Arguments used to construct this field.
 	 * @return  string       HTML markup for the field.
 	 */
-	protected function render_field_textarea ( $key, $args ) {
+	protected function render_field_textarea( $key, $args ) {
 		// Explore how best to escape this data, as esc_textarea() strips HTML tags, it seems.
 		$html = '<textarea id="' . esc_attr( $key ) . '" name="' . esc_attr( $key ) . '" cols="42" rows="5">' . $this->get_value( $args['id'], $args['default'], $args['section'] ) . '</textarea>' . "\n";
 		return $html;
@@ -407,7 +410,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @param   array $args  Arguments used to construct this field.
 	 * @return  string       HTML markup for the field.
 	 */
-	protected function render_field_checkbox ( $key, $args ) {
+	protected function render_field_checkbox( $key, $args ) {
 		$has_description = false;
 		$html            = '';
 		if ( isset( $args['description'] ) ) {
@@ -429,7 +432,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @param   array $args  Arguments used to construct this field.
 	 * @return  string       HTML markup for the field.
 	 */
-	protected function render_field_select ( $key, $args ) {
+	protected function render_field_select( $key, $args ) {
 		$this->has_select = true;
 
 		$html = '';
@@ -449,7 +452,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @since  1.0.0
 	 * @return array
 	 */
-	public function get_array_field_types () {
+	public function get_array_field_types() {
 		return array();
 	}
 
@@ -459,7 +462,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @since  1.0.0
 	 * @return array
 	 */
-	protected function get_no_label_field_types () {
+	protected function get_no_label_field_types() {
 		return array( 'info' );
 	}
 
@@ -469,26 +472,26 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @since   1.0.0
 	 * @return  array Supported field type keys.
 	 */
-	public function get_supported_fields () {
-		return (array) apply_filters( 'Woo2Odoo_plugin_supported_fields', array( 'text', 'checkbox', 'radio', 'textarea', 'select', 'password', 'connection' ) );
+	public function get_supported_fields() {
+		return (array) apply_filters( 'woo2odoo_plugin_supported_fields', array( 'text', 'checkbox', 'radio', 'textarea', 'select', 'password', 'connection' ) );
 	}
 
 	/**
 	 * Return a value, using a desired retrieval method.
 	 * @access  public
 	 * @param  string $key option key.
-	 * @param  string $default default value.
+	 * @param  string $default_value default value.
 	 * @param  string $section field section.
 	 * @since   1.0.0
 	 * @return  mixed Returned value.
 	 */
-	public function get_value ( $key, $default, $section ) {
+	public function get_value( $key, $default_value, $section ) {
 		$values = get_option( 'Woo2Odoo-plugin-' . $section, array() );
 
 		if ( is_array( $values ) && isset( $values[ $key ] ) ) {
 			$response = $values[ $key ];
 		} else {
-			$response = $default;
+			$response = $default_value;
 		}
 
 		return $response;
@@ -501,7 +504,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @since   1.0.0
 	 * @return  mixed Returned value.
 	 */
-	public function get_settings ( $section = '' ) {
+	public function get_settings( $section = '' ) {
 		$response = false;
 
 		$sections = array_keys( (array) $this->get_settings_sections() );
@@ -520,13 +523,11 @@ final class Woo2Odoo_Plugin_Settings {
 						// If we have a value stored, use it.
 						if ( isset( $values[ $i ] ) ) {
 							$response[ $i ] = $values[ $i ];
-						} else {
+						} elseif ( isset( $fields[ $i ]['default'] ) ) {
 							// Otherwise, check for a default value. If we have one, use it. Otherwise, return an empty string.
-							if ( isset( $fields[ $i ]['default'] ) ) {
-								$response[ $i ] = $fields[ $i ]['default'];
-							} else {
-								$response[ $i ] = '';
-							}
+							$response[ $i ] = $fields[ $i ]['default'];
+						} else {
+							$response[ $i ] = '';
 						}
 					}
 				}
@@ -545,14 +546,14 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @param   array $args  Arguments used to construct this field.
 	 * @return  string       HTML markup for the field.
 	 */
-	protected function render_field_connection ( $key, $args ) {
+	protected function render_field_connection( $key, $args ) {
 		$has_description = false;
 		$html            = '';
 		if ( isset( $args['description'] ) ) {
 			$has_description = true;
 			$html           .= '<div for="' . esc_attr( $key ) . '">' . "\n";
 		}
-		$authenticated = (new OdooClient())->authenticate();
+		$authenticated = ( new OdooClient() )->authenticate();
 		if ( $authenticated ) {
 			$html .= '<span class="dashicons dashicons-yes-alt" style="color:green"></span>' . "\n";
 		} else {
@@ -565,10 +566,10 @@ final class Woo2Odoo_Plugin_Settings {
 	}
 
 	private function get_companies_select() {
-		$companies = (new OdooClient())->search_read('res.company', null,  ['id', 'name'], null, 5);
+		$companies = ( new OdooClient() )->search_read( 'res.company', null, array( 'id', 'name' ), null, 5 );
 		//for each company, add to the select
 		foreach ($companies as $company) {
-			$companies_select[$company->id] = $company->name;
+			$companies_select[ $company->id ] = $company->name;
 		}
 
 		return $companies_select;
@@ -576,26 +577,32 @@ final class Woo2Odoo_Plugin_Settings {
 
 	private function get_journals_select() {
 		//Check if there is a value setted for company
-		$company = $this->get_value('export_order_company', '', 'export');
-		if (empty($company)) {
-			return ['' => __('Select a company first', 'woo2odoo-plugin')];
+		$company = $this->get_value( 'export_order_company', '', 'export' );
+		if (empty( $company )) {
+			return array( '' => __( 'Select a company first', 'woo2odoo-plugin' ) );
 		}
 
-		$journals = (new OdooClient())->search_read('account.journal', [
-			[
-				'company_id',
-				'=',
-				(int) $company,
-			],
-			[
-				'type',
-				'=',
-				'sale',
-			],
-		],  ['id', 'name'], null, 5);
+		$journals = ( new OdooClient() )->search_read(
+			'account.journal',
+			array(
+				array(
+					'company_id',
+					'=',
+					(int) $company,
+				),
+				array(
+					'type',
+					'=',
+					'sale',
+				),
+			),
+			array( 'id', 'name' ),
+			null,
+			5
+		);
 		//for each journal, add to the select
 		foreach ($journals as $journal) {
-			$journals_select[$journal->id] = $journal->name;
+			$journals_select[ $journal->id ] = $journal->name;
 		}
 
 		return $journals_select;
