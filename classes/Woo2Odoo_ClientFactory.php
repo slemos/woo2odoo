@@ -10,7 +10,7 @@
  */
 namespace Woo2Odoo;
 
-use wineternet\odoo\JsonRpcClient;
+use winternet\odoo\JsonRpcClient;
 
 class Woo2Odoo_ClientFactory {
 
@@ -44,7 +44,7 @@ class Woo2Odoo_ClientFactory {
 	public function get_client(): JsonRpcClient {
 		// You can force nenewing a Client based on createdAt
 		if (!$this->client) {
-			$this->client = $this->createClient();
+			$this->client = $this->create_client();
 		}
 		return $this->client;
 	}

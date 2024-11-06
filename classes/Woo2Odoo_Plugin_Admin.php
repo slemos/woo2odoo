@@ -14,8 +14,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly
 }
 
-require_once 'class-woo2odoo-plugin.php';
-
 final class Woo2Odoo_Plugin_Admin {
 	/**
 	 * Woo2Odoo_Plugin_Admin The single instance of Woo2Odoo_Plugin_Admin.

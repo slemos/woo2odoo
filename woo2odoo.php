@@ -18,14 +18,13 @@
  * @author slemos
  */
 
-namespace Woo2Odoo;
-
 if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly
 }
 
-require_once 'classes/class-woo2odoo-plugin.php';
 require_once 'vendor/autoload.php';
+
+use Woo2Odoo\Woo2Odoo_Plugin;
 
 /**
  * WooCommerce fallback notice.
@@ -53,4 +52,4 @@ function woo2odoo_main_instance() {
 
 	return Woo2Odoo_Plugin::instance();
 }
-add_action( 'plugins_loaded', 'Woo2Odoo\woo2odoo_main_instance' );
+add_action( 'plugins_loaded', 'woo2odoo_main_instance' );

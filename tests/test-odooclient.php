@@ -8,7 +8,6 @@ class OdooClientTest extends TestCase {
     private $odooClient;
 
     protected function setUp(): void {
-        require_once './classes/class-woo2odoo-client.php';
 
         // Retrieve values from environment variables
         $odoo_url = $_ENV['ODOO_URL'];

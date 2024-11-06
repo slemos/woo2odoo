@@ -49,5 +49,10 @@
         "ext-zlib": "*",
         "ext-mbstring": "*",
         "winternet-studio/odoo-jsonrpc-client": "^1.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Woo2Odoo\\": "classes/"
+        }
     }
 }

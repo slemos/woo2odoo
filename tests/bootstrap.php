@@ -26,7 +26,16 @@ require_once "{$_tests_dir}/includes/functions.php";
  * Manually load the plugin being tested.
  */
 function _manually_load_plugin() {
-	require_once( '/var/www/html/wp-content/plugins/woocommerce/woocommerce.php' );
+	define( 'WP_ADMIN', TRUE );
+//define( 'WP_NETWORK_ADMIN', TRUE ); // Need for Multisite
+define( 'WP_USER_ADMIN', TRUE );
+
+require_once('/var/www/html/wp-load.php');
+require_once( '/var/www/html/wp-admin/includes/admin.php' );
+require_once( '/var/www/html/wp-admin/includes/plugin.php' );
+
+activate_plugin( '/var/www/html/wp-content/plugins/woocommerce/woocommerce.php' );
+	//require_once( '/var/www/html/wp-content/plugins/woocommerce/woocommerce.php' );
 	require dirname( dirname( __FILE__ ) ) . '/woo2odoo.php';
 }
 
