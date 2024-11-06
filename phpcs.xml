@@ -23,7 +23,7 @@
 	<rule ref="PHPCompatibilityWP"/>
 	<rule ref="WordPress-Extra">
 		<exclude name="WordPress.WhiteSpace" />
-
+		<exclude name="WordPress.Files.FileName" />
 	</rule>
     <rule ref="SlevomatCodingStandard.Namespaces.ReferenceUsedNamesOnly"/>
 	<rule ref="SlevomatCodingStandard.Classes.ClassConstantVisibility"/>

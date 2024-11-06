@@ -82,11 +82,9 @@ final class Woo2Odoo_Plugin {
 		$this->version     = '1.0.0';
 
 		// Admin - Start
-		require_once 'class-woo2odoo-plugin-settings.php';
-			$this->settings = Woo2Odoo_Plugin_Settings::instance();
+		$this->settings = Woo2Odoo_Plugin_Settings::instance();
 
 		if ( is_admin() ) {
-			require_once 'class-woo2odoo-plugin-admin.php';
 			$this->admin = Woo2Odoo_Plugin_Admin::instance();
 		}
 		// Admin - End

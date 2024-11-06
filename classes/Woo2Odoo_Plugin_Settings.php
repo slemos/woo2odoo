@@ -17,8 +17,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly
 }
 
-require_once 'class-woo2odoo-client.php';
-
 // phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores
 final class Woo2Odoo_Plugin_Settings {
 	/**

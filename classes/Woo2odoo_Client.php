@@ -9,8 +9,6 @@
  */
 namespace Woo2Odoo;
 
-require_once 'class-woo2odoo-clientfactory.php';
-
 /**
  * Class Woo2odoo_Client
  */
@@ -46,7 +44,7 @@ class Woo2odoo_Client {
 	 * Constructor
 	 */
 	public function __construct() {
-		$this->client = Woo2Odoo_ClientFactory::instance()->getClient();
+		$this->client = Woo2Odoo_ClientFactory::instance()->get_client();
 	}
 
 	/**
@@ -56,7 +54,7 @@ class Woo2odoo_Client {
 	 */
 	private function get_client() {
 		if ( !$this->client ) {
-			$this->client = OdooClientFactory::instance()->getClient();
+			$this->client = OdooClientFactory::instance()->get_client();
 		}
 		return $this->client;
 	}
