@@ -34,8 +34,8 @@ require_once('/var/www/html/wp-load.php');
 require_once( '/var/www/html/wp-admin/includes/admin.php' );
 require_once( '/var/www/html/wp-admin/includes/plugin.php' );
 
-activate_plugin( '/var/www/html/wp-content/plugins/woocommerce/woocommerce.php' );
-	//require_once( '/var/www/html/wp-content/plugins/woocommerce/woocommerce.php' );
+//activate_plugin( '/var/www/html/wp-content/plugins/woocommerce/woocommerce.php' );
+	require_once( '/var/www/html/wp-content/plugins/woocommerce/woocommerce.php' );
 	require dirname( dirname( __FILE__ ) ) . '/woo2odoo.php';
 }
 
