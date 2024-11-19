@@ -120,4 +120,65 @@ class OdooClientTest extends TestCase {
         $this->assertEquals('1186', $result['state']);
     }
 
+    public function testGetOdooSkus() {
+        // Create a two mock product
+        $product1 = $this->createMock(WC_Product::class);
+        $product1->method('get_sku')->willReturn('GELCOL-100');
+        $product1->method('get_id')->willReturn(1);
+        $product1->method('get_name')->willReturn('Product 1');
+        $product1->method('get_price')->willReturn(1000);
+        $product1->method('get_tax_class')->willReturn('IVA');
+
+        $product2 = $this->createMock(WC_Product::class);
+        $product2->method('get_sku')->willReturn('GELCOL-001');
+        $product2->method('get_id')->willReturn(2);
+        $product2->method('get_name')->willReturn('Product 2');
+        $product2->method('get_price')->willReturn(2000);
+        $product2->method('get_tax_class')->willReturn('IVA');
+
+        // create a mock item for each product
+        $item1 = $this->createMock(WC_Order_Item_Product::class);
+        $item1->method('get_product')->willReturn($product1);
+        $item1->method('get_quantity')->willReturn(1);
+        $item1->method('get_subtotal')->willReturn(1000);
+        $item1->method('get_total')->willReturn(1000);
+        $item1->method('get_subtotal_tax')->willReturn(190);
+        $item1->method('get_total_tax')->willReturn(190);
+        $item1->method('get_taxes')->willReturn([
+            [
+                'id' => 1,
+                'total' => 190
+            ]
+        ]);
+
+        $item2 = $this->createMock(WC_Order_Item_Product::class);
+        $item2->method('get_product')->willReturn($product2);
+        $item2->method('get_quantity')->willReturn(1);
+        $item2->method('get_subtotal')->willReturn(2000);
+        $item2->method('get_total')->willReturn(2000);
+        $item2->method('get_subtotal_tax')->willReturn(380);
+        $item2->method('get_total_tax')->willReturn(380);
+        $item2->method('get_taxes')->willReturn([
+            [
+                'id' => 1,
+                'total' => 380
+            ]
+        ]);
+        
+        // Create a mock order and add the items
+        $order = $this->createMock(WC_Order::class);
+        $order->method('get_items')->willReturn([$item1, $item2]);
+
+        $result = $this->odooClient->get_odoo_skus($order);
+        $this->assertIsArray($result);
+        $this->assertIsObject($result['GELCOL-001']);
+    }
+
+    public function testOdooTaxData() {
+        $result = $this->odooClient->search_read( 'account.tax', [['country_code', '=', 'CL'], ['type_tax_use', '=', 'sale'], ['amount', '=', '19']], ['id'], null, 1, null, ['single' => 'true']);
+        xdebug_break();
+        $this->assertIsObject($result);
+        $this->assertIsNumeric($result->id);
+    }
+
 }

@@ -75,14 +75,7 @@ class Woo2odoo_Client {
 		try {
 			return $this->get_client()->read( $model, $ids, $fields, $options );
 		} catch (Exception $e) {
-			wc_get_logger()->info(
-				'Odoo search failed with exception',
-				array(
-					'message' => $e->getMessage(),
-					'code'    => $e->getCode(),
-					'trace'   => $e->getTraceAsString(),
-				)
-			);
+			$this->log_exception( 'Odoo read failed', $e );
 			return false;
 		}
 	}
@@ -139,14 +132,7 @@ class Woo2odoo_Client {
 
 			return $result;
 		} catch (Exception $e) {
-			wc_get_logger()->info(
-				'Odoo search_read failed with exception',
-				array(
-					'message' => $e->getMessage(),
-					'code'    => $e->getCode(),
-					'trace'   => $e->getTraceAsString(),
-				)
-			);
+			$this->log_exception( 'Odoo search_read failed', $e );
 			return false;
 		}
 	}
@@ -154,29 +140,15 @@ class Woo2odoo_Client {
 	public function authenticate() {
 		try {
 			if ( !$this->is_authenticated ) {
-				$this->session_id = $this->get_client()->authenticate();
-				if ( $this->session_id ) {
-					$this->is_authenticated = true;
-				} else {
-					$this->is_authenticated = false;
-					wc_get_logger()->warning(
-						'Odoo authentication failed',
-						array(
-							'session_id' => $this->session_id,
-						)
-					);
+				$this->session_id       = $this->get_client()->authenticate();
+				$this->is_authenticated = (bool) $this->session_id;
+				if ( !$this->is_authenticated ) {
+					$this->log_warning( 'Odoo authentication failed', array( 'session_id' => $this->session_id ) );
 				}
 			}
 			return $this->is_authenticated;
 		} catch (Exception $e) {
-			wc_get_logger()->info(
-				'Odoo authentication failed with exception',
-				array(
-					'message' => $e->getMessage(),
-					'code'    => $e->getCode(),
-					'trace'   => $e->getTraceAsString(),
-				)
-			);
+			$this->log_exception( 'Odoo authentication failed', $e );
 			return false;
 		}
 	}
@@ -188,14 +160,7 @@ class Woo2odoo_Client {
 		try {
 			return $this->get_client()->create( $model, $data );
 		} catch (Exception $e) {
-			wc_get_logger()->error(
-				'Odoo create failed with exception',
-				array(
-					'message' => $e->getMessage(),
-					'code'    => $e->getCode(),
-					'trace'   => $e->getTraceAsString(),
-				)
-			);
+			$this->log_exception( 'Odoo create failed', $e );
 			return false;
 		}
 	}
@@ -209,12 +174,7 @@ class Woo2odoo_Client {
 		try {
 			$order = wc_get_order( $order_id );
 			if ( !$order ) {
-				wc_get_logger()->warning(
-					'Odoo order_sync failed: Order not found',
-					array(
-						'order_id' => $order_id,
-					)
-				);
+				$this->log_warning( 'Odoo order_sync failed: Order not found', array( 'order_id' => $order_id ) );
 				return false;
 			}
 
@@ -236,17 +196,30 @@ class Woo2odoo_Client {
 			);
 			if ( !$odoo_order ) {
 				// Create the order in Odoo
-				$order_data          = $order->get_data();
-				$order_lines         = $order->get_items();
-				$order_data['lines'] = array();
-				foreach ($order_lines as $line) {
-					$order_data['lines'][] = $line->get_data();
-				}
+
+				// Get the customer data
+				$customer_data = $this->get_customer_data( $order );
+
+				$order_data = array(
+					'partner_id'         => (int) $customer_data['id'],
+					'partner_invoice_id' => (int) $customer_data['invoice_id'],
+					'state'              => $this->default_mapping[ $order->get_status() ],
+					'note'               => __( 'Woo Order Id : ', 'wc2odoo' ) . $order_id,
+					'payment_term_id'    => 1,
+					'origin'             => $order_id,
+					'date_order'         => date_format( $order->get_date_created(), 'Y-m-d H:i:s' ),
+				);
 
 				$odoo_order = $this->create( 'sale.order', $order_data );
+
+				// Check if creation went ok
+				if ( !$odoo_order ) {
+					$this->log_error( 'Failed to create order in Odoo', $order_data );
+					return false;
+				}
+
 			} elseif ( $odoo_order['state'] !== $this->default_mapping[ $order->get_status() ] ) {
-				//Already exists, validate if the status matches
-				wc_get_logger()->info(
+				$this->log_info(
 					'Order status mismatch',
 					array(
 						'order_id'     => $order_id,
@@ -255,28 +228,11 @@ class Woo2odoo_Client {
 					)
 				);
 			}
-
-			$order = wc_get_order( $order_id );
-			if ( !$order ) {
-				return false;
-			}
-
-			$order_data          = $order->get_data();
-			$order_lines         = $order->get_items();
-			$order_data['lines'] = array();
-			foreach ($order_lines as $line) {
-				$order_data['lines'][] = $line->get_data();
-			}
+			// Add order line items
+			$this->add_order_line_items( $order, $odoo_order, (int) $customer_data['id'] );
 
 		} catch (Exception $e) {
-			wc_get_logger()->info(
-				'Odoo order_sync failed with exception',
-				array(
-					'message' => $e->getMessage(),
-					'code'    => $e->getCode(),
-					'trace'   => $e->getTraceAsString(),
-				)
-			);
+			$this->log_exception( 'Odoo order_sync failed', $e );
 			return false;
 		}
 	}
@@ -312,6 +268,11 @@ class Woo2odoo_Client {
 						'=',
 						$email,
 					),
+					array(
+						'type',
+						'=',
+						'contact',
+					),
 				),
 				array( 'id' ),
 				null,
@@ -322,7 +283,7 @@ class Woo2odoo_Client {
 
 			// If user not exists in Odoo then Create New Customer in odoo.
 			if ( empty( $customer_id ) || false === $customer_id ) {
-				wc_get_logger()->info( 'User not found in Odoo proceed to create it', array( 'User Email' => $email ) );
+				$this->log_info( 'User not found in Odoo, creating new', array( 'User Email' => $email ) );
 				$customer_id = $this->create_or_update_customer( $user, null );
 			} else {
 				// Remove std class object from the result to match the create return value.
@@ -330,84 +291,10 @@ class Woo2odoo_Client {
 			}
 
 			if ( is_numeric( $customer_id ) ) {
-				$customer_data['id']    = $customer_id;
-				$is_new_billing_address = true;
-
-				// Search the billing address in the odoo.
-				$odoo_billing_address = $this->search_read(
-					'res.partner',
-					array(
-						array(
-							'parent_id',
-							'=',
-							$customer_id,
-						),
-						array( 'type', '=', 'invoice' ),
-						array( 'street', '=ilike', $billing_address_order['address_1'] ),
-						array( 'zip', '=', $billing_address_order['postcode'] ),
-					),
-					array( 'id' ),
-					null,
-					1,
-					null,
-					array( 'single' => true )
-				);
-
-				if ( $odoo_billing_address ) {
-					$customer_data['invoice_id'] = $odoo_billing_address->id;
-					$is_new_billing_address      = false;
-				}
-
-				if ( $is_new_billing_address ) {
-					$billing_address = $this->create_address_data( 'invoice', $billing_address_order, $customer_id );
-					$billing_id      = $this->create( 'res.partner', $billing_address );
-
-					if ( $billing_id && ! isset( $billing_id['faultString'] ) ) {
-						$customer_data['invoice_id'] = $billing_id;
-					} else {
-						wc_get_logger()->error( 'Error for creating billing address for customer', array( 'Billing' => $billing_address ) );
-						return false;
-					}
-				}
-				$is_new_shipping_address = true;
-				$shipping_address_order  = $order->get_address( 'shipping' );
-
-				// Search the shipping address in the odoo.
-				$odoo_shipping_address = $this->search_read(
-					'res.partner',
-					array(
-						array(
-							'parent_id',
-							'=',
-							$customer_id,
-						),
-						array( 'type', '=', 'delivery' ),
-						array( 'street', '=ilike', $shipping_address_order['address_1'] ),
-						array( 'zip', '=', $shipping_address_order['postcode'] ),
-					),
-					array( 'id' ),
-					null,
-					1,
-					null,
-					array( 'single' => true )
-				);
-
-				if ( $odoo_shipping_address ) {
-					$customer_data['shipping_id'] = $odoo_shipping_address->id;
-					$is_new_shipping_address      = false;
-				}
-
-				if ( $is_new_shipping_address ) {
-					$shipping_address = $this->create_address_data( 'delivery', $shipping_address_order, $customer_id );
-					$shipping_id      = $this->create( 'res.partner', $shipping_address );
-
-					if ( $shipping_id ) {
-						$customer_data['shipping_id'] = $shipping_id;
-					} else {
-						wc_get_logger()->error( 'Error for creating shipping address for customer', array( 'Shipping' => $shipping_address ) );
-						return false;
-					}
-				}
+				$customer_data['id']          = $customer_id;
+				$customer_data['invoice_id']  = $this->get_or_create_address( 'invoice', $billing_address_order, $customer_id );
+				$shipping_address_order       = $order->get_address( 'shipping' );
+				$customer_data['shipping_id'] = $this->get_or_create_address( 'delivery', $shipping_address_order, $customer_id );
 			}
 		}
 
@@ -423,7 +310,7 @@ class Woo2odoo_Client {
 	public function create_or_update_customer( $customer_data, $customer_id ) {
 
 		if ( !$customer_data ) {
-			wc_get_logger->error( 'Error for creating customer in Odoo', array( 'msg' => 'Customer data and order data is empty' ) );
+			$this->log_error( 'Error creating customer in Odoo', array( 'msg' => 'Customer data is empty' ) );
 			return false;
 		}
 
@@ -505,14 +392,7 @@ class Woo2odoo_Client {
 		try {
 			return $this->get_client()->update( $model, $id, $data );
 		} catch ( Exception $e ) {
-			wc_get_logger()->error(
-				'Odoo update failed with exception',
-				array(
-					'message' => $e->getMessage(),
-					'code'    => $e->getCode(),
-					'trace'   => $e->getTraceAsString(),
-				)
-			);
+			$this->log_exception( 'Odoo update failed', $e );
 			return false;
 		}
 	}
@@ -530,14 +410,7 @@ class Woo2odoo_Client {
 		try {
 			return $this->get_client()->create( $model, $data );
 		} catch ( Exception $e ) {
-			wc_get_logger()->error(
-				'Odoo create failed with exception',
-				array(
-					'message' => $e->getMessage(),
-					'code'    => $e->getCode(),
-					'trace'   => $e->getTraceAsString(),
-				)
-			);
+			$this->log_exception( 'Odoo create failed', $e );
 			return false;
 		}
 	}
@@ -583,5 +456,126 @@ class Woo2odoo_Client {
 		$formatted_rut = substr( $rut, 0, -1 ) . '-' . substr( $rut, -1 );
 
 		return $formatted_rut;
+	}
+
+	private function log_exception( $message, $exception ) {
+		wc_get_logger()->error(
+			$message,
+			array(
+				'message' => $exception->getMessage(),
+				'code'    => $exception->getCode(),
+				'trace'   => $exception->getTraceAsString(),
+			)
+		);
+	}
+
+	private function log_warning( $message, $context = array() ) {
+		wc_get_logger()->warning( $message, $context );
+	}
+
+	private function log_info( $message, $context = array() ) {
+		wc_get_logger()->info( $message, $context );
+	}
+
+	private function log_error( $message, $context = array() ) {
+		wc_get_logger()->error( $message, $context );
+	}
+
+	private function prepare_order_data( $order ) {
+		$order_data          = $order->get_data();
+		$order_lines         = $order->get_items();
+		$order_data['lines'] = array();
+		foreach ($order_lines as $line) {
+			$order_data['lines'][] = $line->get_data();
+		}
+		return $order_data;
+	}
+
+	private function get_or_create_address( $type, $address_order, $customer_id ) {
+		$is_new_address = true;
+		$odoo_address   = $this->search_read(
+			'res.partner',
+			array(
+				array( 'parent_id', '=', $customer_id ),
+				array( 'type', '=', $type ),
+				array( 'street', '=ilike', $address_order['address_1'] ),
+				array( 'zip', '=', $address_order['postcode'] ),
+			),
+			array( 'id' ),
+			null,
+			1,
+			null,
+			array( 'single' => true )
+		);
+		if ( $odoo_address ) {
+			$is_new_address = false;
+			return $odoo_address->id;
+		}
+		if ( $is_new_address ) {
+			$address    = $this->create_address_data( $type, $address_order, $customer_id );
+			$address_id = $this->create( 'res.partner', $address );
+			if ( $address_id && !isset( $address_id['faultString'] ) ) {
+				return $address_id;
+			} else {
+				$this->log_error( 'Error creating address for customer', array( 'Address' => $address ) );
+				return false;
+			}
+		}
+	}
+
+	/**
+	 * Get all the SKUs in Odoo for a given order
+	 *
+	 * @param WC_Order $order
+	 * @return array
+	 *
+	 */
+	public function get_odoo_skus( $order ) {
+		$skus        = array();
+		$order_items = $order->get_items();
+		foreach ($order_items as $item) {
+			$skus[] = $item->get_product()->get_sku();
+		}
+		// Query Odoo for the products
+		$products = $this->search_read( 'product.product', array( array( 'default_code', 'in', $skus ) ), array( 'default_code', 'id' ), null, 1000, null, array( 'indexBy' => 'default_code' ) );
+		return $products;
+	}
+
+
+	/**
+	 * Add order line item to Odoo
+	 *
+	 * @param WC_Order $order
+	 * @param array $odoo_order
+	 * @param int $customer_id
+	 *
+	 */
+	public function add_order_line_items( $order, $odoo_order, $customer_id ) {
+		$order_items   = $order->get_items();
+		$odoo_products = $this->get_odoo_skus( $order );
+
+		foreach ($order_items as $item) {
+			$product      = $item->get_product();
+			$odoo_product = $odoo_products[ $product->get_sku() ] ?? false;
+			if ( $odoo_product ) {
+				$unit_price = number_format( (float) ( $item->get_total() / $item->get_quantity() ), 2, '.', '' );
+
+				$line_data = array(
+					'order_partner_id' => $customer_id,
+					'order_id'         => $odoo_order['id'],
+					'product_id'       => $odoo_product['id'],
+					'product_uom_qty'  => $item->get_quantity(),
+					'price_unit'       => $unit_price,
+				);
+				if ( $item->get_total_tax() > 0 ) {
+					//Hardcoded IVA tax id, check if the array( 6, 0, array (3) ) is correct
+					$line_data['tax_id'] = array( array( 6, 0, array( 3 ) ) );
+				} else {
+					$line_data['tax_id'] = array( array( 6, 0, array() ) );
+				}
+
+				$this->create( 'sale.order.line', $line_data );
+			}
+		}
 	}
 }
