@@ -15,7 +15,7 @@ use winternet\odoo\JsonRpcClient;
 class Woo2Odoo_ClientFactory {
 
 	/**
-	 * The single instance of OdooClientFactory.
+	 * The single instance of Woo2Odoo_ClientFactory.
 	 * @var     object
 	 * @access  private
 	 * @since   1.0.0
@@ -50,9 +50,9 @@ class Woo2Odoo_ClientFactory {
 	}
 
 	/**
-	 * Main OdooClientFactory Instance
+	 * Main Woo2Odoo_ClientFactory Instance
 	 *
-	 * Ensures only one instance of OdooClientFactory is loaded or can be loaded.
+	 * Ensures only one instance of Woo2Odoo_ClientFactory is loaded or can be loaded.
 	 *
 	 * @since 1.0.0
 	 * @static

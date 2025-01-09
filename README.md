@@ -15,7 +15,7 @@ A WooCommmerce Extension inspired by [Create Woo Extension](https://github.com/w
 ```
 npm install
 npm run build
-wp-env start
+npm run wp-env start
 ```
 
 ### Run tests

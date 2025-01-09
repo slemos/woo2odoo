@@ -54,7 +54,7 @@ class Woo2odoo_Client {
 	 */
 	private function get_client() {
 		if ( !$this->client ) {
-			$this->client = OdooClientFactory::instance()->get_client();
+			$this->client = Woo2Odoo_ClientFactory::instance()->get_client();
 		}
 		return $this->client;
 	}
@@ -230,7 +230,18 @@ class Woo2odoo_Client {
 			}
 			// Add order line items
 			$this->add_order_line_items( $order, $odoo_order, (int) $customer_data['id'] );
-
+	
+			// Check if the order has shipping amount > 0
+			if ( $order->get_shipping_total() > 0 ) {
+				$shipping_data = array(
+					'order_partner_id' => (int) $customer_data['id'],
+					'order_id'         => $odoo_order['id'],
+					'product_id'       => 1229, // Hardcoded shipping product ID
+					'product_uom_qty'  => 1,
+					'price_unit'       => $order->get_shipping_total(),
+				);
+				$this->create( 'sale.order.line', $shipping_data );
+			}
 		} catch (Exception $e) {
 			$this->log_exception( 'Odoo order_sync failed', $e );
 			return false;
@@ -577,5 +588,42 @@ class Woo2odoo_Client {
 				$this->create( 'sale.order.line', $line_data );
 			}
 		}
+	}
+
+	/**
+	 * Get the last l10n_latam_document_number of a l10n_latam_document_type_id.
+	 * 
+	 * @param int $l10n_latam_document_type_id The ID of the document type. 5 or 1 are valid values.
+	 * @return string The last l10n_latam_document_number formated with 000000.
+	 */
+	public function get_last_l10n_latam_document_number( $l10n_latam_document_type_id ) {
+		$journal_id = (new Woo2Odoo_Plugin_Settings())->get_value("export_order_journal", "", "export");
+
+		$last_number = $this->search_read(
+			'account.move',
+			array(
+				array('l10n_latam_document_type_id', '=', $l10n_latam_document_type_id),
+				array('name', 'not like', 'False%'),
+				array('state', '!=', 'cancel'),
+				array('journal_id', '=', (int) $journal_id)
+			),
+			array('l10n_latam_document_number'),
+			null,
+			1,
+			'name DESC',
+			array('single' => true)
+		);
+		
+		if ( !isset( $last_number ) || !isset( $last_number->l10n_latam_document_number  ) ) {
+			$error_msg = 'Unable to get Last Document Number For Document Type Id  => ' . $l10n_latam_document_type_id . ' - Msg : ' . print_r( $last_number, true );
+			$this->log_error( $error_msg );
+
+			return '000000';
+		}
+		$new_number = (int) $last_number->l10n_latam_document_number;
+		$new_number++;
+
+		// Return a string with 6 digits, filled with zero to the left.
+		return str_pad( $new_number, 6, '0', STR_PAD_LEFT );
 	}
 }
