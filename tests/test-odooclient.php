@@ -28,9 +28,9 @@ class OdooClientTest extends TestCase {
             'export_order' => 'true',
             'export_order_invoice' => 'true',
             'export_order_company' => '1',
-            'export_order_journal' => '1',
+            'export_order_journal' => '9',
             'export_order_use_journal_zero' => 'false',
-            'export_order_journal_zero' => '2'
+            'export_order_journal_zero' => '19'
         ));
 
         $this->odooClient = new Woo2odoo_Client();
@@ -176,9 +176,16 @@ class OdooClientTest extends TestCase {
 
     public function testOdooTaxData() {
         $result = $this->odooClient->search_read( 'account.tax', [['country_code', '=', 'CL'], ['type_tax_use', '=', 'sale'], ['amount', '=', '19']], ['id'], null, 1, null, ['single' => 'true']);
-        xdebug_break();
+        // xdebug_break();
         $this->assertIsObject($result);
         $this->assertIsNumeric($result->id);
+    }
+
+    // Test get_last_l10n_latam_document_number
+    public function testGetLastL10nLatamDocumentNumber() {
+        $result = $this->odooClient->get_last_l10n_latam_document_number(5);
+        $this->assertIsNumeric($result);
+        $this->assertGreaterThan(0, $result);
     }
 
 }
