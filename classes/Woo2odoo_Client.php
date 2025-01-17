@@ -584,8 +584,24 @@ class Woo2odoo_Client {
 				} else {
 					$line_data['tax_id'] = array( array( 6, 0, array() ) );
 				}
-
-				$this->create( 'sale.order.line', $line_data );
+				// Check if the order line was already created
+				$odoo_order_line = $this->search_read(
+					'sale.order.line',
+					array(
+						array( 'order_id', '=', $odoo_order['id'] ),
+						array( 'product_id.id', '=', $odoo_product['id'] ),
+					),
+					array( 'id' ),
+					null,
+					1,
+					null,
+					array( 'single' => true )
+				);
+				if ( $odoo_order_line ) {
+					$this->update_record( 'sale.order.line', $odoo_order_line->id, $line_data );
+				} else {
+					$this->create( 'sale.order.line', $line_data );
+				}
 			}
 		}
 	}
