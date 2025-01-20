@@ -15,7 +15,8 @@ A WooCommmerce Extension inspired by [Create Woo Extension](https://github.com/w
 ```
 npm install
 npm run build
-npm run wp-env start
+# Enables each of the Xdebug modes listed:
+npm run wp-env start -- --xdebug=profile,trace,debug
 ```
 
 ### Run tests

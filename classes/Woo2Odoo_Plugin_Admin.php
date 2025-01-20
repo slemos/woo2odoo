@@ -281,13 +281,13 @@ final class Woo2Odoo_Plugin_Admin {
 		check_admin_referer( 'woo2odoo_plugin_delete_cache', 'woo2odoo_plugin_delete_cache' );
 		if ( isset( $_POST['woo2odoo_delete_cache'] ) && 1 === $_POST['woo2odoo_delete_cache'] ) {
 			$this->delete_cache();
-			add_settingsesc_html_error(
+			add_settings_error(
 				'woo2odoo_messages',
 				'woo2odoo_message',
 				__( 'Cache deleted successfully.', 'woo2odoo-plugin' ),
 				'updated'
 			);
-			set_transient( 'settingsesc_html_errors', get_settingsesc_html_errors(), 30 );
+			set_transient( 'settingsesc_html_errors', get_settings_errors(), 30 );
 			wp_safe_redirect( add_query_arg( array( 'settings-updated' => 'true' ), admin_url( 'options-general.php?page=woo2odoo-plugin' ) ) );
 			exit;
 		}
@@ -299,13 +299,13 @@ final class Woo2Odoo_Plugin_Admin {
 		if ( isset( $_POST['woo2odoo_sync_order'] ) && 1 === $_POST['woo2odoo_sync_order'] && isset( $_POST['woo2odoo-plugin-tools']['order'] ) && ! empty( $_POST['woo2odoo-plugin-tools']['order'] ) ) {
 			// Pass the order id to the order_sync function.
 			$this->order_sync( sanitize_text_field( $_POST['woo2odoo-plugin-tools']['order'] ) );
-			add_settingsesc_html_error(
+			add_settings_error(
 				'woo2odoo_messages',
 				'woo2odoo_message',
 				__( 'Order', 'woo2odoo-plugin' ) . ' ' . sanitize_text_field( $_POST['woo2odoo-plugin-tools']['order'] ) . ' ' . __( 'synced successfully.', 'woo2odoo-plugin' ),
 				'updated'
 			);
-			set_transient( 'settingsesc_html_errors', get_settingsesc_html_errors(), 30 );
+			set_transient( 'settingsesc_html_errors', get_settings_errors(), 30 );
 			wp_safe_redirect( add_query_arg( array( 'settings-updated' => 'true' ), admin_url( 'options-general.php?page=woo2odoo-plugin' ) ) );
 			exit;
 		}
@@ -322,7 +322,7 @@ final class Woo2Odoo_Plugin_Admin {
 				'order_id' => $order_id,
 			)
 		);
-		$odooclient = new OdooClient();
+		$odooclient = new Woo2odoo_Client();
 		$odooclient->order_sync( $order_id );
 		wc_get_logger()->info(
 			'Order Sync Complete',

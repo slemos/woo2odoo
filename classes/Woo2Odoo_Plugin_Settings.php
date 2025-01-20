@@ -551,7 +551,7 @@ final class Woo2Odoo_Plugin_Settings {
 			$has_description = true;
 			$html           .= '<div for="' . esc_attr( $key ) . '">' . "\n";
 		}
-		$authenticated = ( new OdooClient() )->authenticate();
+		$authenticated = ( new Woo2odoo_Client() )->authenticate();
 		if ( $authenticated ) {
 			$html .= '<span class="dashicons dashicons-yes-alt" style="color:green"></span>' . "\n";
 		} else {
@@ -564,7 +564,7 @@ final class Woo2Odoo_Plugin_Settings {
 	}
 
 	private function get_companies_select() {
-		$companies = ( new OdooClient() )->search_read( 'res.company', null, array( 'id', 'name' ), null, 5 );
+		$companies = ( new Woo2odoo_Client() )->search_read( 'res.company', null, array( 'id', 'name' ), null, 5 );
 		//for each company, add to the select
 		foreach ($companies as $company) {
 			$companies_select[ $company->id ] = $company->name;
@@ -580,7 +580,7 @@ final class Woo2Odoo_Plugin_Settings {
 			return array( '' => __( 'Select a company first', 'woo2odoo-plugin' ) );
 		}
 
-		$journals = ( new OdooClient() )->search_read(
+		$journals = ( new Woo2odoo_Client() )->search_read(
 			'account.journal',
 			array(
 				array(
