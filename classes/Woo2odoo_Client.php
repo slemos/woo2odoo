@@ -74,7 +74,7 @@ class Woo2odoo_Client {
 
 		try {
 			return $this->get_client()->read( $model, $ids, $fields, $options );
-		} catch (Exception $e) {
+		} catch (\Exception $e) {
 			$this->log_exception( 'Odoo read failed', $e );
 			return false;
 		}
@@ -131,7 +131,7 @@ class Woo2odoo_Client {
 			wp_cache_set( $cache_key, $result, 'woo2odoo', HOUR_IN_SECONDS );
 
 			return $result;
-		} catch (Exception $e) {
+		} catch (\Exception $e) {
 			$this->log_exception( 'Odoo search_read failed', $e );
 			return false;
 		}
@@ -147,7 +147,7 @@ class Woo2odoo_Client {
 				}
 			}
 			return $this->is_authenticated;
-		} catch (Exception $e) {
+		} catch (\Exception $e) {
 			$this->log_exception( 'Odoo authentication failed', $e );
 			return false;
 		}
@@ -159,7 +159,7 @@ class Woo2odoo_Client {
 		}
 		try {
 			return $this->get_client()->create( $model, $data );
-		} catch (Exception $e) {
+		} catch (\Exception $e) {
 			$this->log_exception( 'Odoo create failed', $e );
 			return false;
 		}
@@ -218,15 +218,18 @@ class Woo2odoo_Client {
 					return false;
 				}
 
-			} elseif ( $odoo_order['state'] !== $this->default_mapping[ $order->get_status() ] ) {
-				$this->log_info(
-					'Order status mismatch',
-					array(
-						'order_id'     => $order_id,
-						'order_status' => $order->get_status(),
-						'odoo_status'  => $odoo_order['state'],
-					)
-				);
+			} else {
+				if ( $odoo_order['state'] !== $this->default_mapping[ $order->get_status() ] ) {
+					$this->log_info(
+						'Order status mismatch',
+						array(
+							'order_id'     => $order_id,
+							'order_status' => $order->get_status(),
+							'odoo_status'  => $odoo_order['state'],
+						)
+					);
+				}
+				$odoo_order = $odoo_order->id;
 			}
 			// Add order line items
 			$this->add_order_line_items( $order, $odoo_order, (int) $customer_data['id'] );
@@ -242,7 +245,7 @@ class Woo2odoo_Client {
 				);
 				$this->create( 'sale.order.line', $shipping_data );
 			}
-		} catch (Exception $e) {
+		} catch (\Exception $e) {
 			$this->log_exception( 'Odoo order_sync failed', $e );
 			return false;
 		}
@@ -402,7 +405,7 @@ class Woo2odoo_Client {
 		}
 		try {
 			return $this->get_client()->update( $model, $id, $data );
-		} catch ( Exception $e ) {
+		} catch ( \Exception $e ) {
 			$this->log_exception( 'Odoo update failed', $e );
 			return false;
 		}
@@ -420,7 +423,7 @@ class Woo2odoo_Client {
 		}
 		try {
 			return $this->get_client()->create( $model, $data );
-		} catch ( Exception $e ) {
+		} catch ( \Exception $e ) {
 			$this->log_exception( 'Odoo create failed', $e );
 			return false;
 		}
@@ -469,7 +472,7 @@ class Woo2odoo_Client {
 		return $formatted_rut;
 	}
 
-	private function log_exception( $message, $exception ) {
+	public function log_exception( $message, $exception ) {
 		wc_get_logger()->error(
 			$message,
 			array(
@@ -480,19 +483,19 @@ class Woo2odoo_Client {
 		);
 	}
 
-	private function log_warning( $message, $context = array() ) {
+	public function log_warning( $message, $context = array() ) {
 		wc_get_logger()->warning( $message, $context );
 	}
 
-	private function log_info( $message, $context = array() ) {
+	public function log_info( $message, $context = array() ) {
 		wc_get_logger()->info( $message, $context );
 	}
 
-	private function log_error( $message, $context = array() ) {
+	public function log_error( $message, $context = array() ) {
 		wc_get_logger()->error( $message, $context );
 	}
 
-	private function prepare_order_data( $order ) {
+	public function prepare_order_data( $order ) {
 		$order_data          = $order->get_data();
 		$order_lines         = $order->get_items();
 		$order_data['lines'] = array();
@@ -502,7 +505,7 @@ class Woo2odoo_Client {
 		return $order_data;
 	}
 
-	private function get_or_create_address( $type, $address_order, $customer_id ) {
+	public function get_or_create_address( $type, $address_order, $customer_id ) {
 		$is_new_address = true;
 		$odoo_address   = $this->search_read(
 			'res.partner',
@@ -560,10 +563,12 @@ class Woo2odoo_Client {
 	 * @param array $odoo_order
 	 * @param int $customer_id
 	 *
+	 * @return bool true if the order lines was added successfully
 	 */
 	public function add_order_line_items( $order, $odoo_order, $customer_id ) {
 		$order_items   = $order->get_items();
 		$odoo_products = $this->get_odoo_skus( $order );
+		$all_success   = true;
 
 		foreach ($order_items as $item) {
 			$product      = $item->get_product();
@@ -573,8 +578,8 @@ class Woo2odoo_Client {
 
 				$line_data = array(
 					'order_partner_id' => $customer_id,
-					'order_id'         => $odoo_order['id'],
-					'product_id'       => $odoo_product['id'],
+					'order_id'         => $odoo_order,
+					'product_id'       => $odoo_product->id,
 					'product_uom_qty'  => $item->get_quantity(),
 					'price_unit'       => $unit_price,
 				);
@@ -588,8 +593,8 @@ class Woo2odoo_Client {
 				$odoo_order_line = $this->search_read(
 					'sale.order.line',
 					array(
-						array( 'order_id', '=', $odoo_order['id'] ),
-						array( 'product_id.id', '=', $odoo_product['id'] ),
+						array( 'order_id', '=', $odoo_order ),
+						array( 'product_id.id', '=', $odoo_product->id ),
 					),
 					array( 'id' ),
 					null,
@@ -598,12 +603,22 @@ class Woo2odoo_Client {
 					array( 'single' => true )
 				);
 				if ( $odoo_order_line ) {
-					$this->update_record( 'sale.order.line', $odoo_order_line->id, $line_data );
+					$retval = $this->update_record( 'sale.order.line', $odoo_order, $line_data );
 				} else {
-					$this->create( 'sale.order.line', $line_data );
+					$retval = $this->create_record( 'sale.order.line', $line_data );
+				}
+				if ( !$retval ) {
+					$this->log_error( 'Error creating order line item in Odoo', array( 'Order Line Data' => $line_data ) );
+					$all_success = false;
 				}
 			}
+			else {
+				$this->log_error( 'Product not found in Odoo', array( 'Product SKU' => $product->get_sku() ) );
+				$all_success = false;
+			}
 		}
+
+		return $all_success;
 	}
 
 	/**

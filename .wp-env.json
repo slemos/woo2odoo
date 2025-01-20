@@ -1,7 +1,7 @@
 {
     "core": "WordPress/WordPress",
     "phpVersion": "8.2",
-    "plugins": [ "https://downloads.wordpress.org/plugin/woocommerce.zip", "." ],
+    "plugins": [ "https://downloads.wordpress.org/plugin/woocommerce.9.5.2.zip", "." ],
     "env": {
         "tests": {
             "phpVersion": "8.2"

@@ -39,6 +39,7 @@ require_once( '/var/www/html/wp-admin/includes/plugin.php' );
 	require dirname( dirname( __FILE__ ) ) . '/woo2odoo.php';
 }
 
+/** @disregard This functions gets loaded on wp-env run phpunit */
 tests_add_filter( 'muplugins_loaded', '_manually_load_plugin' );
 
 // Start up the WP testing environment.
