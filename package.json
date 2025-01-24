@@ -1,11 +1,26 @@
 {
+    "name": "woo2odoo-plugin",
+    "version": "0.7.7",
+    "author": "Sebastian Lemos",
+    "homepage": "https://github.com/slemos",
+    "license": "GPL-2.0",
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/slemos/woo2odoo"
+    },
+    "bugs": {
+      "url": "https://github.com/slemos/woo2odoo"
+    },
     "scripts": {
-        "wp-scripts": "wp-scripts",
         "wp-env": "wp-env",
+        "env:start": "wp-env start --xdebug=debug,trace,profile,coverage --update",
         "build": "composer install --no-dev --optimize-autoloader",
+        "i18n": "WP_CLI_PHP_ARGS='-d memory_limit=2048M' ./vendor/bin/wp i18n make-pot . ./languages/$npm_package_name.pot --slug=$npm_package_name --domain=$npm_package_name --exclude=bin,data,node_modules,tests,vendor",
         "composer": "wp-env run cli --env-cwd=wp-content/plugins/woo2odoo composer --allow-root",
         "composer:tests-cli": "wp-env run tests-cli --env-cwd=wp-content/plugins/woo2odoo composer  --allow-root",
-        "test:unit": "wp-env run tests-cli --env-cwd=wp-content/plugins/woo2odoo ./vendor/bin/phpunit"
+        "test:unit": "wp-env run wordpress --env-cwd=wp-content/plugins/woo2odoo ./vendor/bin/phpunit --coverage-text",
+        "lint:php": "vendor/bin/phpcs -p -s --colors .",
+        "lint:php:summary": "vendor/bin/phpcs --colors --report=summary ."
     },
     "devDependencies": {
         "@wordpress/env": "^9.10.0"

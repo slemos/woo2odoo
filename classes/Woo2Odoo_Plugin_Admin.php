@@ -73,7 +73,7 @@ final class Woo2Odoo_Plugin_Admin {
 	 * @return  void
 	 */
 	public function register_settings_screen() {
-		$this->hook = add_submenu_page( 'options-general.php', __( 'Woo2Odoo Plugin Settings', 'woo2odoo-plugin' ), __( 'Woo2Odoo Plugin', 'woo2odoo-plugin' ), 'manage_options', 'woo2odoo-plugin', array( $this, 'settings_screen' ) );
+		$this->hook = add_submenu_page( 'options-general.php', __( 'Woo2Odoo Plugin Settings', 'woo2odoo-plugin' ), 'Woo2Odoo Plugin', 'manage_options', 'woo2odoo-plugin', array( $this, 'settings_screen' ) );
 	}
 
 	/**
@@ -322,13 +322,21 @@ final class Woo2Odoo_Plugin_Admin {
 				'order_id' => $order_id,
 			)
 		);
-		$odooclient = new Woo2odoo_Client();
-		$odooclient->order_sync( $order_id );
-		wc_get_logger()->info(
-			'Order Sync Complete',
-			array(
-				'order_id' => $order_id,
-			)
-		);
+		$ordermanager = new Woo2Odoo_Order_Manager();
+		if ( $ordermanager->order_sync( $order_id ) ) {
+			wc_get_logger()->info(
+				'Order Sync Complete',
+				array(
+					'order_id' => $order_id,
+				)
+			);
+		} else {
+			wc_get_logger()->error(
+				'Order Sync Failed',
+				array(
+					'order_id' => $order_id,
+				)
+			);
+		}
 	}
 }
