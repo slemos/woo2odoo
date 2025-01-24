@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once 'vendor/autoload.php';
-require_once 'classes/Woo2odoo_Client.php';
+//require_once 'classes/Woo2odoo_Client.php';
 
 use Woo2Odoo\Woo2Odoo_Plugin;
 

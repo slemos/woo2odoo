@@ -1,0 +1,173 @@
+# Copyright (C) 2025 Sebastian Lemos
+# This file is distributed under the same license as the Woo2Odoo plugin.
+msgid ""
+msgstr ""
+"Project-Id-Version: Woo2Odoo 1.0.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/woo2odoo-plugin\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2025-01-23T19:28:54+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.11.0\n"
+"X-Domain: woo2odoo-plugin\n"
+
+#. Plugin Name of the plugin
+#: woo2odoo.php
+msgid "Woo2Odoo"
+msgstr ""
+
+#. Plugin URI of the plugin
+#: woo2odoo.php
+msgid "http://github.com/slemos/woo2odoo_main_instance"
+msgstr ""
+
+#. Description of the plugin
+#: woo2odoo.php
+msgid "WooCommerce to Odoo Integration plugin"
+msgstr ""
+
+#. Author of the plugin
+#: woo2odoo.php
+msgid "Sebastian Lemos"
+msgstr ""
+
+#. Author URI of the plugin
+#: woo2odoo.php
+msgid "http://github.com/slemos"
+msgstr ""
+
+#: classes/Woo2Odoo_Order_Manager.php:120
+msgid "Woo Order Id : "
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Admin.php:76
+msgid "Woo2Odoo Plugin Settings"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Admin.php:99
+msgid "Save Changes"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Admin.php:103
+msgid "Tools"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Admin.php:107
+msgid "Delete cache?"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Admin.php:108
+msgid "This is useful if you are experiencing issues with the plugin."
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Admin.php:113
+msgid "Delete cache"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Admin.php:118
+msgid "Sync order:"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Admin.php:125
+msgid "Sync"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Admin.php:287
+msgid "Cache deleted successfully."
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Admin.php:305
+msgid "Order"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Admin.php:305
+msgid "synced successfully."
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:252
+msgid "Odoo URL"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:256
+msgid "URL to Odoo"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:259
+msgid "Database Name"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:263
+msgid "The Database Name for Odoo"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:266
+msgid "Odoo Username"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:270
+msgid "Odoo User Name"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:273
+msgid "Odoo Password"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:277
+msgid "Odoo password for user"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:280
+msgid "Connection Ok?"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:289
+msgid "Export Orders"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:293
+msgid "Export order on checkout?"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:296
+msgid "Export Invoice"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:300
+msgid "Export invoice for paid orders?"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:304
+msgid "Company"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:308
+msgid "Select the company to export orders to"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:313
+msgid "Journal"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:317
+#: classes/Woo2Odoo_Plugin_Settings.php:332
+msgid "Select the journal to export invoices to"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:321
+msgid "Zero invoice journal"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:325
+msgid "Export zero ammount invoices to other journal?"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:328
+msgid "Zero ammount invoices journal"
+msgstr ""
+
+#: classes/Woo2Odoo_Plugin_Settings.php:580
+msgid "Select a company first"
+msgstr ""
