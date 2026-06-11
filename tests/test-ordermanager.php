@@ -435,7 +435,7 @@ class OrderManagerTest extends TestCase {
         $order->method('get_items')->willReturn([$item1]);
 
         // create a odoo_order array with id
-        $odoo_order = 956;
+        $odoo_order = 956;  // intentionally non-existent order to test failure path
 
         $result = $this->orderManager->add_order_line_items($order, $odoo_order, 1);
         $this->assertFalse($result);
@@ -491,8 +491,8 @@ class OrderManagerTest extends TestCase {
         $order = $this->createMock(\WC_Order::class);
         $order->method('get_items')->willReturn([$item1, $item2]);
 
-        // create a odoo_order array with id
-        $odoo_order = 956;
+        // Use a draft order in arm-testing Odoo that accepts new line items
+        $odoo_order = 2388;
 
         $result = $this->orderManager->add_order_line_items($order, $odoo_order, 1);
         $this->assertTrue($result);
