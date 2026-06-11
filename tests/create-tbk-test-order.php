@@ -18,14 +18,14 @@ define('WP_ADMIN', true);
 require_once('/var/www/html/wp-load.php');
 
 $billing = [
-    'first_name' => 'Sebastian',
-    'last_name'  => 'Lemos',
-    'email'      => 'slemos.satue@gmail.com',
-    'address_1'  => 'La Capitanía 81',
+    'first_name' => 'Test',
+    'last_name'  => 'Customer',
+    'email'      => 'test@example.com',
+    'address_1'  => 'Calle Falsa 123',
     'city'       => 'Santiago',
     'state'      => 'RM',
     'country'    => 'CL',
-    'phone'      => '+56912345678',
+    'phone'      => '+56900000000',
 ];
 
 $product_id_1 = wc_get_product_id_by_sku('GELCOL-100');

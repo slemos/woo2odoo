@@ -1056,7 +1056,11 @@ class Woo2Odoo_Order_Manager {
 	 */
 	private function create_outstanding_payment( $invoice_id, $partner_id, $payment_info ) {
 		$export_settings = get_option( 'Woo2Odoo-plugin-export', array() );
-		$journal_id      = isset( $export_settings['payment_journal_id'] ) ? (int) $export_settings['payment_journal_id'] : 14;
+		$journal_id      = isset( $export_settings['payment_journal_id'] ) ? (int) $export_settings['payment_journal_id'] : 0;
+		if ( ! $journal_id ) {
+			wc_get_logger()->error( 'woo2odoo: payment_journal_id not configured — skipping outstanding payment creation' );
+			return false;
+		}
 
 		$payment_data = array(
 			'payment_type' => 'inbound',

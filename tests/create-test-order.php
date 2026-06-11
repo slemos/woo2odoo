@@ -50,14 +50,14 @@ if (!class_exists('WC_Order')) {
 // ===== DATOS FIJOS DE PRUEBA =====
 // Los mismos para todas las variantes (cliente, productos, dirección)
 $billing = [
-    'first_name' => 'Sebastian',
-    'last_name'  => 'Lemos',
-    'email'      => 'slemos.satue@gmail.com',
-    'address_1'  => 'La Capitanía 81',
+    'first_name' => 'Test',
+    'last_name'  => 'Customer',
+    'email'      => 'test@example.com',
+    'address_1'  => 'Calle Falsa 123',
     'city'       => 'Santiago',
     'state'      => 'RM',
     'country'    => 'CL',
-    'phone'      => '+56912345678',
+    'phone'      => '+56900000000',
 ];
 $rut = '12345678-9';
 
