@@ -172,6 +172,18 @@ class Woo2Odoo_Client {
 		}
 	}
 
+	public function execute( $model, $method, $args ) {
+		if ( !$this->authenticate() ) {
+			return false;
+		}
+		try {
+			return $this->get_client()->execute( $model, $method, $args );
+		} catch ( Exception $e ) {
+			$this->log_exception( 'Odoo execute failed', $e );
+			return false;
+		}
+	}
+
 	/**
 	 * Log an exception to WooCommerce logs
 	 *

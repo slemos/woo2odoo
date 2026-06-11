@@ -332,6 +332,13 @@ final class Woo2Odoo_Plugin_Settings {
 					'description' => __( 'Select the journal to export invoices to', 'woo2odoo-plugin' ),
 					'options'     => $this->get_journals_select(),
 				);
+				$settings_fields['invoice_terms_url'] = array(
+					'name'        => __( 'Invoice Terms & Conditions URL', 'woo2odoo-plugin' ),
+					'type'        => 'text',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'URL shown as Terms & Conditions on customer invoices (e.g. https://pink-mask.cl/terminos-y-condiciones/). Leave empty to use Odoo default.', 'woo2odoo-plugin' ),
+				);
 				break;
 			default:
 				# code...

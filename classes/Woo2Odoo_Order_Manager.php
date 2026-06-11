@@ -113,16 +113,18 @@ class Woo2Odoo_Order_Manager {
 				null,
 				array( 'single' => true )
 			);
+			$is_new_order = false;
 			if ( !$odoo_order ) {
 				// Create the order in Odoo
 				$order_data = array(
-					'partner_id'         => (int) $customer_data['id'],
-					'partner_invoice_id' => (int) $customer_data['invoice_id'],
-					'state'              => $odoo_order_state,
-					'note'               => __( 'Woo Order Id : ', 'woo2odoo-plugin' ) . $order_id,
-					'payment_term_id'    => 1,
-					'origin'             => $order_id,
-					'date_order'         => date_format( $order->get_date_created(), 'Y-m-d H:i:s' ),
+					'partner_id'          => (int) $customer_data['id'],
+					'partner_invoice_id'  => (int) $customer_data['invoice_id'],
+					'partner_shipping_id' => (int) $customer_data['shipping_id'],
+					'state'               => $odoo_order_state,
+					'note'                => __( 'Woo Order Id : ', 'woo2odoo-plugin' ) . $order_id,
+					'payment_term_id'     => 1,
+					'origin'              => $order_id,
+					'date_order'          => date_format( $order->get_date_created(), 'Y-m-d H:i:s' ),
 				);
 
 				$odoo_order_id = $this->client->create_record( 'sale.order', $order_data );
@@ -132,10 +134,11 @@ class Woo2Odoo_Order_Manager {
 					$this->client->log_error( 'Failed to create order in Odoo', $order_data );
 					return false;
 				}
+				$is_new_order = true;
 
 			} else {
 				if ( $odoo_order->state !== $odoo_order_state ) {
-					$this->log_info(
+					$this->client->log_info(
 						'Order status mismatch',
 						array(
 							'order_id'     => $order_id,
@@ -145,7 +148,7 @@ class Woo2Odoo_Order_Manager {
 					);
 				}
 				if ( $odoo_order->invoice_status === 'invoiced' ) {
-					$this->log_info(
+					$this->client->log_info(
 						'Order already invoiced, cannot continue',
 						array(
 							'order_id' => $order_id,
@@ -178,6 +181,18 @@ class Woo2Odoo_Order_Manager {
 				}
 			}
 
+			// Create invoice in Odoo (only for new orders)
+			if ( $is_new_order ) {
+				$invoice_id = $this->create_invoice_for_so( $odoo_order_id, $order_id, $customer_data );
+
+				if ( $invoice_id ) {
+					$payment_info = $this->get_payment_info_from_wc_order( $order );
+					if ( $payment_info ) {
+						$this->create_outstanding_payment( $invoice_id, (int) $customer_data['id'], $payment_info );
+					}
+				}
+			}
+
 		} catch (Exception $e) {
 			$this->client->log_exception( 'Odoo order_sync failed', $e );
 			return false;
@@ -195,6 +210,97 @@ class Woo2Odoo_Order_Manager {
 	 * @return bool|int $invoice_id return invoice id if created successfully else false.
 	 * 
 	 */
+	/**
+	 * Create an invoice (account.move) in Odoo for a given sale.order.
+	 * Called after order_sync creates the SO. Invoice is left in draft state.
+	 *
+	 * @param int   $odoo_order_id Odoo sale.order ID.
+	 * @param int   $wc_order_id   WooCommerce order ID (for logging/origin).
+	 * @param array $customer_data From get_customer_data(): keys id, invoice_id, shipping_id.
+	 * @return int|false Invoice ID or false on failure.
+	 */
+	private function create_invoice_for_so( $odoo_order_id, $wc_order_id, $customer_data ) {
+		// Get SO details to use as invoice origin
+		$so = $this->client->search_read(
+			'sale.order',
+			array( array( 'id', '=', $odoo_order_id ) ),
+			array( 'id', 'name', 'date_order' ),
+			null, 1, null,
+			array( 'single' => true )
+		);
+		$so_name = $so ? $so->name : "WC#$wc_order_id";
+
+		// Get journal from plugin export settings (falls back to journal 9)
+		$export_settings = get_option( 'Woo2Odoo-plugin-export', array() );
+		$journal_id      = isset( $export_settings['invoiceJournal'] ) ? (int) $export_settings['invoiceJournal'] : 9;
+
+		// Determine document type: (33) Factura when _billing_invoice_type=1, else (39) Boleta
+		$requires_factura        = get_post_meta( $wc_order_id, '_billing_invoice_type', true ) === '1';
+		$latam_document_type_id  = $requires_factura ? 1 : 5;
+
+		// Payment reference: WC order number (set before action_post so Odoo doesn't replace it with invoice name)
+		$payment_reference = 'WC#' . $wc_order_id;
+
+		// Terms & conditions: use configured URL if set, otherwise clear Odoo's default
+		$terms_url = isset( $export_settings['invoice_terms_url'] ) ? trim( $export_settings['invoice_terms_url'] ) : '';
+		$narration = $terms_url
+			? '<p>Términos y condiciones: <a href="' . esc_url( $terms_url ) . '">' . esc_html( $terms_url ) . '</a></p>'
+			: '';
+
+		// Create account.move header (draft invoice)
+		$invoice_id = $this->client->create_record( 'account.move', array(
+			'move_type'                    => 'out_invoice',
+			'partner_id'                   => (int) $customer_data['invoice_id'],
+			'partner_shipping_id'          => (int) $customer_data['shipping_id'],
+			'invoice_origin'               => $so_name,
+			'journal_id'                   => $journal_id,
+			'invoice_date'                 => date( 'Y-m-d' ),
+			'currency_id'                  => 44, // CLP
+			'l10n_latam_document_type_id'  => $latam_document_type_id,
+			'payment_reference'            => $payment_reference,
+			'narration'                    => $narration,
+		) );
+
+		if ( !$invoice_id ) {
+			$this->client->log_error( 'Failed to create invoice for SO', array( 'so_id' => $odoo_order_id, 'wc_order_id' => $wc_order_id ) );
+			return false;
+		}
+
+		// Get SO lines to create invoice lines
+		$so_lines = $this->client->search_read(
+			'sale.order.line',
+			array( array( 'order_id', '=', $odoo_order_id ) ),
+			array( 'id', 'product_id', 'product_uom_qty', 'price_unit', 'display_type', 'name' ),
+			null, null, null
+		);
+
+		if ( $so_lines ) {
+			foreach ( $so_lines as $line ) {
+				// Skip section/note display lines
+				if ( !empty( $line->display_type ) ) {
+					continue;
+				}
+				if ( empty( $line->product_id ) ) {
+					continue;
+				}
+				$this->client->create_record( 'account.move.line', array(
+					'move_id'       => $invoice_id,
+					'product_id'    => (int) $line->product_id[0],
+					'quantity'      => $line->product_uom_qty,
+					'price_unit'    => $line->price_unit,
+					'sale_line_ids' => array( array( 6, 0, array( (int) $line->id ) ) ),
+				) );
+			}
+		}
+
+		$this->client->log_info( 'Invoice created in Odoo (draft)', array(
+			'invoice_id'   => $invoice_id,
+			'so_id'        => $odoo_order_id,
+			'wc_order_id'  => $wc_order_id,
+		) );
+		return $invoice_id;
+	}
+
 	public function create_invoice( $order, $customer_data ) {
 
 		if ( ! $this->client->authenticate() ) {
@@ -509,7 +615,7 @@ class Woo2Odoo_Order_Manager {
 
 			// If user not exists in Odoo then Create New Customer in odoo.
 			if ( empty( $customer_id ) || false === $customer_id ) {
-				$this->log_info( 'User not found in Odoo, creating new', array( 'User Email' => $email ) );
+				$this->client->log_info( 'User not found in Odoo, creating new', array( 'User Email' => $email ) );
 				$customer_id = $this->create_or_update_customer( $user, null );
 			} else {
 				// Remove std class object from the result to match the create return value.
@@ -519,7 +625,11 @@ class Woo2Odoo_Order_Manager {
 			if ( is_numeric( $customer_id ) ) {
 				$customer_data['id']          = $customer_id;
 				$customer_data['invoice_id']  = $this->get_or_create_address( 'invoice', $billing_address_order, $customer_id );
-				$shipping_address_order       = $order->get_address( 'shipping' );
+				$shipping_address_order = $order->get_address( 'shipping' );
+				// Fall back to billing address if shipping is empty (e.g. "ship to same address")
+				if ( empty( $shipping_address_order['address_1'] ) && empty( $shipping_address_order['city'] ) ) {
+					$shipping_address_order = $billing_address_order;
+				}
 				$customer_data['shipping_id'] = $this->get_or_create_address( 'delivery', $shipping_address_order, $customer_id );
 			}
 		}
@@ -540,24 +650,52 @@ class Woo2Odoo_Order_Manager {
 			return false;
 		}
 
-		$all_meta_for_user = get_user_meta( $customer_data->ID );
-		$state_county      = $this->get_state_and_country_codes( $all_meta_for_user['billing_state'][0], $all_meta_for_user['billing_country'][0] );
+		$all_meta_for_user = get_user_meta( $customer_data->ID ) ?: array();
+		$billing_state     = isset( $all_meta_for_user['billing_state'][0] ) ? $all_meta_for_user['billing_state'][0] : '';
+		$billing_country   = isset( $all_meta_for_user['billing_country'][0] ) ? $all_meta_for_user['billing_country'][0] : 'CL';
+		$state_county      = $this->get_state_and_country_codes( $billing_state, $billing_country );
+
+		// Build customer name with proper fallbacks to avoid empty names in Odoo
+		$first_name = trim( get_user_meta( $customer_data->ID, 'first_name', true ) );
+		$last_name = trim( get_user_meta( $customer_data->ID, 'last_name', true ) );
+
+		// If user profile names are empty, try billing names from meta
+		if ( empty( $first_name ) && isset( $all_meta_for_user['billing_first_name'][0] ) ) {
+			$first_name = trim( $all_meta_for_user['billing_first_name'][0] );
+		}
+		if ( empty( $last_name ) && isset( $all_meta_for_user['billing_last_name'][0] ) ) {
+			$last_name = trim( $all_meta_for_user['billing_last_name'][0] );
+		}
+
+		// Construct full name with proper spacing
+		$customer_name = trim( $first_name . ' ' . $last_name );
+
+		// If still empty, use display_name as fallback
+		if ( empty( $customer_name ) ) {
+			$customer_name = $customer_data->display_name;
+		}
+
+		// Final fallback to user_login if still empty
+		if ( empty( $customer_name ) ) {
+			$customer_name = $customer_data->user_login;
+		}
+
 		$data              = array(
-			'name'                              => get_user_meta( $customer_data->ID, 'first_name', true ) . ' ' . get_user_meta( $customer_data->ID, 'last_name', true ),
-			'display_name'                      => get_user_meta( $customer_data->ID, 'first_name', true ) . ' ' . get_user_meta( $customer_data->ID, 'last_name', true ),
+			'name'                              => $customer_name,
+			'display_name'                      => $customer_name,
 			'email'                             => $customer_data->user_email,
 			'customer_rank'                     => 1,
 			'type'                              => 'contact',
-			'phone'                             => $all_meta_for_user['billing_phone'][0],
-			'street'                            => $all_meta_for_user['billing_address_1'][0],
-			'city'                              => $all_meta_for_user['billing_city'][0],
+			'phone'                             => isset( $all_meta_for_user['billing_phone'][0] ) ? $all_meta_for_user['billing_phone'][0] : '',
+			'street'                            => isset( $all_meta_for_user['billing_address_1'][0] ) ? $all_meta_for_user['billing_address_1'][0] : '',
+			'city'                              => isset( $all_meta_for_user['billing_city'][0] ) ? $all_meta_for_user['billing_city'][0] : '',
 			'state_id'                          => $state_county['state'],
 			'country_id'                        => $state_county['country'],
-			'zip'                               => $all_meta_for_user['billing_postcode'][0],
-			'l10n_latam_identification_type_id' => '4',
-			'vat'                               => $this->format_rut( $all_meta_for_user['billing_rut'][0] ),
+			'zip'                               => isset( $all_meta_for_user['billing_postcode'][0] ) ? $all_meta_for_user['billing_postcode'][0] : '',
+			'l10n_latam_identification_type_id' => 4,
+			'vat'                               => $this->format_rut( isset( $all_meta_for_user['billing_rut'][0] ) ? $all_meta_for_user['billing_rut'][0] : '' ),
 			'l10n_cl_sii_taxpayer_type'         => '1',
-			'l10n_cl_dte_email'                 => $all_meta_for_user['billing_email'][0],
+			'l10n_cl_dte_email'                 => isset( $all_meta_for_user['billing_email'][0] ) ? $all_meta_for_user['billing_email'][0] : $customer_data->user_email,
 			'l10n_cl_activity_description'      => !empty( $all_meta_for_user['billing_giro'][0] ) ? $all_meta_for_user['billing_giro'][0] : 'Manicurista',
 		);
 
@@ -645,6 +783,9 @@ class Woo2Odoo_Order_Manager {
 		);
 		if ( $odoo_address ) {
 			$is_new_address = false;
+			// Update existing address with current order data (name/phone/city may have changed)
+			$update_data = $this->create_address_data( $type, $address_order, $customer_id );
+			$this->client->update_record( 'res.partner', (int) $odoo_address->id, $update_data );
 			return $odoo_address->id;
 		}
 		if ( $is_new_address ) {
@@ -811,6 +952,147 @@ class Woo2Odoo_Order_Manager {
 		return str_pad( $new_number, 6, '0', STR_PAD_LEFT );
 	}
 
+
+	/**
+	 * Extract payment info from WooCommerce order if paid via Transbank or MercadoPago.
+	 *
+	 * @param \WC_Order $order WooCommerce order.
+	 * @return array|false Array with keys 'amount', 'date', 'memo' if confirmed payment, false otherwise.
+	 */
+	private function get_payment_info_from_wc_order( \WC_Order $order ) {
+		$payment_method = $order->get_payment_method();
+
+		if ( 'transbank_webpay_plus_rest' === $payment_method ) {
+			$status = $order->get_meta( 'transactionStatus' );
+			if ( 'Autorizada' !== $status ) {
+				return false;
+			}
+
+			$amount = $order->get_meta( 'amount' );
+			if ( empty( $amount ) ) {
+				$amount = $order->get_total();
+			}
+			$amount = (float) $amount;
+
+			$date_str = $order->get_meta( 'transactionDate' );
+			$date = $this->parse_transbank_date( $date_str );
+
+			$memo = 'TBK-' . $order->get_meta( 'authorizationCode' ) . ' / WC#' . $order->get_id();
+
+			return array(
+				'amount' => $amount,
+				'date'   => $date,
+				'memo'   => $memo,
+			);
+		} elseif ( 'woo-mercado-pago-basic' === $payment_method ) {
+			$payment_ids = $order->get_meta( '_Mercado_Pago_Payment_IDs' );
+			$paid_date = $order->get_meta( '_paid_date' );
+
+			if ( empty( $payment_ids ) || empty( $paid_date ) ) {
+				return false;
+			}
+
+			$amount = (float) $order->get_total();
+
+			$date = $this->parse_mercadopago_date( $paid_date );
+
+			$memo = 'MP-' . $payment_ids . ' / WC#' . $order->get_id();
+
+			return array(
+				'amount' => $amount,
+				'date'   => $date,
+				'memo'   => $memo,
+			);
+		}
+
+		return false;
+	}
+
+	/**
+	 * Parse Transbank date format (d-m-Y H:i:s P) to Y-m-d.
+	 *
+	 * @param string $date_str Date string from Transbank metadata.
+	 * @return string Date in Y-m-d format.
+	 */
+	private function parse_transbank_date( $date_str ) {
+		if ( empty( $date_str ) ) {
+			return date( 'Y-m-d' );
+		}
+
+		$date = \DateTime::createFromFormat( 'd-m-Y H:i:s P', $date_str );
+		if ( false === $date ) {
+			return date( 'Y-m-d' );
+		}
+
+		return $date->format( 'Y-m-d' );
+	}
+
+	/**
+	 * Parse MercadoPago date format (Y-m-d H:i:s) to Y-m-d.
+	 *
+	 * @param string $date_str Date string from MercadoPago metadata.
+	 * @return string Date in Y-m-d format.
+	 */
+	private function parse_mercadopago_date( $date_str ) {
+		if ( empty( $date_str ) ) {
+			return date( 'Y-m-d' );
+		}
+
+		$date = \DateTime::createFromFormat( 'Y-m-d H:i:s', $date_str );
+		if ( false === $date ) {
+			return date( 'Y-m-d' );
+		}
+
+		return $date->format( 'Y-m-d' );
+	}
+
+	/**
+	 * Create an outstanding payment record in Odoo for electronic payments.
+	 *
+	 * @param int   $invoice_id Odoo account.move ID (invoice).
+	 * @param int   $partner_id Odoo res.partner ID (customer).
+	 * @param array $payment_info Payment info array with keys: amount, date, memo.
+	 * @return int|false Payment ID if created and posted, false on failure.
+	 */
+	private function create_outstanding_payment( $invoice_id, $partner_id, $payment_info ) {
+		$export_settings = get_option( 'Woo2Odoo-plugin-export', array() );
+		$journal_id      = isset( $export_settings['payment_journal_id'] ) ? (int) $export_settings['payment_journal_id'] : 14;
+
+		$payment_data = array(
+			'payment_type' => 'inbound',
+			'partner_type' => 'customer',
+			'partner_id'   => $partner_id,
+			'amount'       => $payment_info['amount'],
+			'journal_id'   => $journal_id,
+			'date'         => $payment_info['date'],
+			'memo'         => $payment_info['memo'],
+			'currency_id'  => 44,
+		);
+
+		$payment_id = $this->client->create_record( 'account.payment', $payment_data );
+
+		if ( !$payment_id ) {
+			$this->client->log_error( 'Failed to create outstanding payment', array( 'payment_data' => $payment_data ) );
+			return false;
+		}
+
+		try {
+			$this->client->execute( 'account.payment', 'action_post', array( array( $payment_id ) ) );
+			$this->client->log_info( 'Outstanding payment created and posted', array(
+				'payment_id' => $payment_id,
+				'invoice_id' => $invoice_id,
+				'partner_id' => $partner_id,
+				'amount'     => $payment_info['amount'],
+			) );
+			return $payment_id;
+		} catch ( Exception $e ) {
+			$this->client->log_error( 'Failed to post outstanding payment', array(
+				'payment_id' => $payment_id,
+				'error'      => $e->getMessage(),
+			) );
+			return false;
+		}
+	}
 
 	/**
 	 * Returns the Odoo states.
