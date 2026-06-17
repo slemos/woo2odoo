@@ -136,6 +136,13 @@ class Woo2Odoo_Order_Manager {
 				}
 				$is_new_order = true;
 
+				$order->update_meta_data( '_odoo_sale_order_id', $odoo_order_id );
+				$order->save();
+
+				$so_read = $this->client->execute( 'sale.order', 'read', array( array( $odoo_order_id ), array( 'name' ) ) );
+				$so_name = ! empty( $so_read ) ? $so_read[0]->name : "ID {$odoo_order_id}";
+				$order->add_order_note( "Woo2Odoo: Pedido de venta {$so_name} creado en Odoo." );
+
 			} else {
 				if ( $odoo_order->state !== $odoo_order_state ) {
 					$this->client->log_info(
@@ -186,9 +193,20 @@ class Woo2Odoo_Order_Manager {
 				$invoice_id = $this->create_invoice_for_so( $odoo_order_id, $order_id, $customer_data );
 
 				if ( $invoice_id ) {
+					// Store invoice ID on the WC order object so it survives WC's subsequent
+					// save() call (which syncs wp_postmeta from the order object via HPOS backfill).
+					// update_post_meta() alone gets wiped by OrdersTableDataStore::backfill_post_record().
+					$order->update_meta_data( '_woo2odoo_invoice_id', $invoice_id );
+					$order->save();
+					$order->add_order_note( "Woo2Odoo: Boleta en borrador creada en Odoo (ID {$invoice_id})." );
+
 					$payment_info = $this->get_payment_info_from_wc_order( $order );
 					if ( $payment_info ) {
-						$this->create_outstanding_payment( $invoice_id, (int) $customer_data['id'], $payment_info );
+						$payment_id = $this->create_outstanding_payment( $invoice_id, (int) $customer_data['id'], $payment_info, $order );
+						if ( $payment_id ) {
+							$order->update_meta_data( '_woo2odoo_payment_id', $payment_id );
+							$order->save();
+						}
 					}
 				}
 			}
@@ -247,10 +265,13 @@ class Woo2Odoo_Order_Manager {
 			? '<p>Términos y condiciones: <a href="' . esc_url( $terms_url ) . '">' . esc_html( $terms_url ) . '</a></p>'
 			: '';
 
-		// Create account.move header (draft invoice)
+		// Create account.move header (draft invoice).
+		// partner_id must be the commercial master (not the invoice-address child).
+		// Odoo's l10n_cl uses commercial_partner_id for the legal document — using a child
+		// causes the boleta/factura to appear under the wrong account.
 		$invoice_id = $this->client->create_record( 'account.move', array(
 			'move_type'                    => 'out_invoice',
-			'partner_id'                   => (int) $customer_data['invoice_id'],
+			'partner_id'                   => (int) $customer_data['id'],
 			'partner_shipping_id'          => (int) $customer_data['shipping_id'],
 			'invoice_origin'               => $so_name,
 			'journal_id'                   => $journal_id,
@@ -494,7 +515,7 @@ class Woo2Odoo_Order_Manager {
 		$order    = $odoo_api->fetch_record_by_id( 'sale.order', array( $odoo_order_id ), array( 'id', 'name', 'date_order' ) );
 		$odoo_api->add_log( 'Preparing invoice data for order: ' . print_r( $order, true ) );
 		$data              = array(
-			'partner_id'               => (int) $odoo_customer['invoice_id'],
+			'partner_id'               => (int) $odoo_customer['id'],
 			'invoice_origin'           => $order['name'],
 			'state'                    => 'draft',
 			'type_name'                => 'Invoice',
@@ -977,7 +998,7 @@ class Woo2Odoo_Order_Manager {
 			$date_str = $order->get_meta( 'transactionDate' );
 			$date = $this->parse_transbank_date( $date_str );
 
-			$memo = 'TBK-' . $order->get_meta( 'authorizationCode' ) . ' / WC#' . $order->get_id();
+			$memo = 'Pedido WC#' . $order->get_id();
 
 			return array(
 				'amount' => $amount,
@@ -996,7 +1017,7 @@ class Woo2Odoo_Order_Manager {
 
 			$date = $this->parse_mercadopago_date( $paid_date );
 
-			$memo = 'MP-' . $payment_ids . ' / WC#' . $order->get_id();
+			$memo = 'Pedido WC#' . $order->get_id();
 
 			return array(
 				'amount' => $amount,
@@ -1047,55 +1068,115 @@ class Woo2Odoo_Order_Manager {
 	}
 
 	/**
-	 * Create an outstanding payment record in Odoo for electronic payments.
+	 * Create an outstanding credit in Odoo for electronic payments (Transbank, MercadoPago).
 	 *
-	 * @param int   $invoice_id Odoo account.move ID (invoice).
-	 * @param int   $partner_id Odoo res.partner ID (customer).
-	 * @param array $payment_info Payment info array with keys: amount, date, memo.
-	 * @return int|false Payment ID if created and posted, false on failure.
+	 * Creates an account.payment (inbound customer payment) linked to the invoice.
+	 *
+	 * Uses account.payment + action_post so Odoo manages the journal entry automatically.
+	 * The journal configured in payment_journal_id must be the bank journal that corresponds
+	 * to the actual bank account where the payment gateway (e.g. Transbank) deposits funds
+	 * (e.g. Scotiabank). That journal must have payment_account_id set on its inbound
+	 * payment method line (account.payment.method.line) — this is what triggers journal
+	 * entry creation: Dr outstanding_receipts_account / Cr receivable.
+	 *
+	 * With l10n_cl, action_post puts the payment in "in_process" state (not "posted").
+	 * Success is verified by checking that move_id was assigned (journal entry exists),
+	 * not by checking state == "posted".
+	 *
+	 * Invoice payment_state will become "in_payment" once the payment is linked and posted.
+	 * Final "paid" status occurs when the bank reconciliation step matches the outstanding
+	 * receipts line against the actual bank deposit (done manually by the accountant).
+	 *
+	 * @param int            $invoice_id   Odoo account.move ID (invoice).
+	 * @param int            $partner_id   Odoo res.partner ID (customer, any contact — commercial master resolved here).
+	 * @param array          $payment_info Array with keys: amount (float), date (Y-m-d), memo (string).
+	 * @param \WC_Order|null $order        WC order to add a sync note to (optional).
+	 * @return int|false Payment ID on success, false on failure.
 	 */
-	private function create_outstanding_payment( $invoice_id, $partner_id, $payment_info ) {
+	private function create_outstanding_payment( $invoice_id, $partner_id, $payment_info, ?\WC_Order $order = null ) {
 		$export_settings = get_option( 'Woo2Odoo-plugin-export', array() );
 		$journal_id      = isset( $export_settings['payment_journal_id'] ) ? (int) $export_settings['payment_journal_id'] : 0;
 		if ( ! $journal_id ) {
-			wc_get_logger()->error( 'woo2odoo: payment_journal_id not configured — skipping outstanding payment creation' );
+			wc_get_logger()->error( 'woo2odoo: payment_journal_id not configured — skipping payment creation' );
 			return false;
 		}
 
-		$payment_data = array(
+		// Resolve to commercial master so the payment partner matches the invoice.
+		$partner_rows = $this->client->execute( 'res.partner', 'read', array(
+			array( $partner_id ),
+			array( 'commercial_partner_id' ),
+		) );
+		if ( ! empty( $partner_rows[0]->commercial_partner_id ) ) {
+			$partner_id = (int) $partner_rows[0]->commercial_partner_id[0];
+		}
+
+		// Create account.payment linked to the invoice via invoice_ids (many2many add).
+		// Odoo will reconcile the payment's receivable line with the invoice on action_post,
+		// setting invoice payment_state = "in_payment".
+		$payment_id = $this->client->create_record( 'account.payment', array(
 			'payment_type' => 'inbound',
 			'partner_type' => 'customer',
 			'partner_id'   => $partner_id,
-			'amount'       => $payment_info['amount'],
 			'journal_id'   => $journal_id,
+			'amount'       => $payment_info['amount'],
 			'date'         => $payment_info['date'],
 			'memo'         => $payment_info['memo'],
 			'currency_id'  => 44,
-		);
+			'invoice_ids'  => array( array( 4, $invoice_id, 0 ) ),
+		) );
 
-		$payment_id = $this->client->create_record( 'account.payment', $payment_data );
-
-		if ( !$payment_id ) {
-			$this->client->log_error( 'Failed to create outstanding payment', array( 'payment_data' => $payment_data ) );
-			return false;
-		}
-
-		try {
-			$this->client->execute( 'account.payment', 'action_post', array( array( $payment_id ) ) );
-			$this->client->log_info( 'Outstanding payment created and posted', array(
-				'payment_id' => $payment_id,
+		if ( ! $payment_id ) {
+			$this->client->log_error( 'Failed to create account.payment', array(
 				'invoice_id' => $invoice_id,
 				'partner_id' => $partner_id,
-				'amount'     => $payment_info['amount'],
-			) );
-			return $payment_id;
-		} catch ( Exception $e ) {
-			$this->client->log_error( 'Failed to post outstanding payment', array(
-				'payment_id' => $payment_id,
-				'error'      => $e->getMessage(),
+				'journal_id' => $journal_id,
 			) );
 			return false;
 		}
+
+		// Post the payment. With l10n_cl the resulting state is "in_process" (not "posted"),
+		// but the journal entry IS created when the journal has payment_account_id configured.
+		$this->client->execute( 'account.payment', 'action_post', array( array( $payment_id ) ) );
+
+		// Verify success via move_id — journal entry must have been created.
+		$pay_rows  = $this->client->execute( 'account.payment', 'read', array(
+			array( $payment_id ),
+			array( 'name', 'state', 'move_id' ),
+		) );
+		$pay_name  = ! empty( $pay_rows ) ? $pay_rows[0]->name : "ID {$payment_id}";
+		$pay_state = ! empty( $pay_rows ) ? $pay_rows[0]->state : 'draft';
+		$move_id   = ! empty( $pay_rows ) && ! empty( $pay_rows[0]->move_id )
+			? (int) $pay_rows[0]->move_id[0]
+			: 0;
+
+		if ( ! $move_id ) {
+			$this->client->log_error(
+				'Payment posted but no journal entry created — verify journal payment_account_id config',
+				array(
+					'payment_id' => $payment_id,
+					'pay_state'  => $pay_state,
+					'journal_id' => $journal_id,
+					'invoice_id' => $invoice_id,
+				)
+			);
+			return false;
+		}
+
+		$this->client->log_info( 'Customer payment created and linked to invoice', array(
+			'payment_id' => $payment_id,
+			'pay_name'   => $pay_name,
+			'pay_state'  => $pay_state,
+			'move_id'    => $move_id,
+			'invoice_id' => $invoice_id,
+			'partner_id' => $partner_id,
+			'amount'     => $payment_info['amount'],
+		) );
+
+		if ( $order ) {
+			$order->add_order_note( "Woo2Odoo: Pago {$pay_name} registrado en Odoo ({$pay_state})." );
+		}
+
+		return $payment_id;
 	}
 
 	/**
@@ -1109,5 +1190,150 @@ class Woo2Odoo_Order_Manager {
 	public function odoo_states( $value, $context ) {
 
 		return $this->states[ $value ][ $context ];
+	}
+
+	/**
+	 * Create a credit note (nota de crédito) in Odoo when WC registers a refund.
+	 *
+	 * @param int $order_id  WooCommerce order ID being refunded.
+	 * @param int $refund_id WooCommerce refund post ID.
+	 * @return int|false Credit note Odoo ID or false on failure.
+	 */
+	public function refund_sync( $order_id, $refund_id ) {
+		if ( ! $this->client->authenticate() ) {
+			return false;
+		}
+
+		try {
+			// Skip if already exported (read via WC API to survive HPOS backfill)
+			$wc_refund = new \WC_Order_Refund( $refund_id );
+			$existing  = $wc_refund->get_meta( '_woo2odoo_return_invoice_id' );
+			if ( $existing ) {
+				$this->client->log_info( 'Refund already exported to Odoo', array( 'refund_id' => $refund_id, 'return_inv_id' => $existing ) );
+				return (int) $existing;
+			}
+
+			// Find the original Odoo invoice (read via WC API)
+			$wc_order        = wc_get_order( $order_id );
+			$odoo_invoice_id = (int) $wc_order->get_meta( '_woo2odoo_invoice_id' );
+			if ( ! $odoo_invoice_id ) {
+				$this->client->log_warning( 'Original Odoo invoice not found for order — refund not exported', array( 'order_id' => $order_id ) );
+				return false;
+			}
+
+			// Fetch invoice details from Odoo
+			$odoo_invoice = $this->client->search_read(
+				'account.move',
+				array( array( 'id', '=', $odoo_invoice_id ) ),
+				array( 'id', 'name', 'partner_id', 'invoice_origin' ),
+				null, 1, null,
+				array( 'single' => true )
+			);
+			if ( ! $odoo_invoice ) {
+				$this->client->log_error( 'Odoo invoice not found by ID', array( 'invoice_id' => $odoo_invoice_id, 'order_id' => $order_id ) );
+				return false;
+			}
+
+			$customer_data = $this->get_customer_data( $wc_order );
+			if ( ! $customer_data ) {
+				$this->client->log_error( 'Error getting customer data for refund', array( 'order_id' => $order_id ) );
+				return false;
+			}
+
+			$export_settings        = get_option( 'Woo2Odoo-plugin-export', array() );
+			$journal_id             = isset( $export_settings['invoiceJournal'] ) ? (int) $export_settings['invoiceJournal'] : 9;
+			// Chile: Odoo record id=3 → code 61 "Electronic Credit Note" (Nota de Crédito)
+			// Applies to both Boleta (39) and Factura (33) refunds.
+			$latam_document_type_id = 3;
+
+			$credit_note_id = $this->client->create_record( 'account.move', array(
+				'move_type'                   => 'out_refund',
+				'partner_id'                  => (int) $customer_data['id'],
+				'partner_shipping_id'         => (int) $customer_data['shipping_id'],
+				'reversed_entry_id'           => $odoo_invoice_id,
+				'invoice_origin'              => $odoo_invoice->name ?? ( 'WC#' . $order_id ),
+				'journal_id'                  => $journal_id,
+				'invoice_date'                => date( 'Y-m-d' ),
+				'currency_id'                 => 44, // CLP
+				'l10n_latam_document_type_id' => $latam_document_type_id,
+				'payment_reference'           => 'Refund WC#' . $order_id,
+			) );
+
+			if ( ! $credit_note_id ) {
+				$this->client->log_error( 'Failed to create credit note in Odoo', array( 'order_id' => $order_id, 'invoice_id' => $odoo_invoice_id ) );
+				return false;
+			}
+
+			// Gather SKUs for all refunded items
+			$refund_items = $wc_refund->get_items();
+			$skus         = array();
+			foreach ( $refund_items as $item ) {
+				$product = $item->get_product();
+				if ( $product && $product->get_sku() ) {
+					$skus[] = $product->get_sku();
+				}
+			}
+
+			$odoo_products = array();
+			if ( ! empty( $skus ) ) {
+				$odoo_products = $this->client->search_read(
+					'product.product',
+					array( array( 'default_code', 'in', $skus ) ),
+					array( 'id', 'default_code' ),
+					null, 1000, null,
+					array( 'indexBy' => 'default_code' )
+				) ?: array();
+			}
+
+			foreach ( $refund_items as $item ) {
+				$product = $item->get_product();
+				if ( ! $product ) {
+					continue;
+				}
+				$sku          = $product->get_sku();
+				$odoo_product = $odoo_products[ $sku ] ?? false;
+				if ( ! $odoo_product ) {
+					$this->client->log_warning( 'Product not found in Odoo for refund line', array( 'sku' => $sku, 'order_id' => $order_id ) );
+					continue;
+				}
+
+				$qty        = absint( $item->get_quantity() );
+				$total      = abs( $item->get_total() );
+				$unit_price = $qty > 0 ? round( $total / $qty, 2 ) : 0;
+
+				$line_data = array(
+					'move_id'    => $credit_note_id,
+					'product_id' => (int) $odoo_product->id,
+					'quantity'   => $qty,
+					'price_unit' => $unit_price,
+				);
+
+				if ( abs( $item->get_total_tax() ) > 0 ) {
+					$line_data['tax_ids'] = array( array( 6, 0, array( 3 ) ) ); // IVA 19%
+				} else {
+					$line_data['tax_ids'] = array( array( 6, 0, array() ) );
+				}
+
+				if ( ! $this->client->create_record( 'account.move.line', $line_data ) ) {
+					$this->client->log_warning( 'Failed to create credit note line', array( 'sku' => $sku, 'order_id' => $order_id ) );
+				}
+			}
+
+			// Store on WC refund object to survive HPOS backfill sync
+			$wc_refund->update_meta_data( '_woo2odoo_return_invoice_id', $credit_note_id );
+			$wc_refund->save();
+
+			$this->client->log_info( 'Credit note created in Odoo (draft)', array(
+				'credit_note_id' => $credit_note_id,
+				'order_id'       => $order_id,
+				'refund_id'      => $refund_id,
+			) );
+
+			return $credit_note_id;
+
+		} catch ( Exception $e ) {
+			$this->client->log_exception( 'refund_sync failed', $e );
+			return false;
+		}
 	}
 }

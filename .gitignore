@@ -9,6 +9,7 @@ wordpress/
 woocommerce/
 .local/*
 .env
+.env.arm
 wp
 composer.lock
 

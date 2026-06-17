@@ -14,10 +14,35 @@ import subprocess
 import sys
 import re
 import time
+import os
+from pathlib import Path
 
-DB_USER = 'pinkmask'
-DB_PASS = '***REMOVED***'
-DB_NAME = 'pinkmask_wp'
+
+def _load_env_file(path: str) -> None:
+    """Carga key=value desde un archivo .env sin dependencias externas."""
+    p = Path(path)
+    if not p.exists():
+        return
+    with p.open() as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, _, val = line.partition('=')
+                val = val.strip().strip('"').strip("'")
+                os.environ.setdefault(key.strip(), val)
+
+
+# Cargar .env.arm desde la raíz del repo (un nivel arriba de tests/)
+_load_env_file(str(Path(__file__).parent.parent / '.env.arm'))
+
+SSH_HOST          = os.getenv('ARM_SSH_ALIAS', 'arm')
+PHP_CONTAINER     = os.getenv('ARM_PHP_CONTAINER', 'infra-php-1')
+MARIADB_CONTAINER = os.getenv('ARM_MARIADB_CONTAINER', 'infra-mariadb-1')
+REDIS_CONTAINER   = os.getenv('ARM_REDIS_CONTAINER', 'infra-redis-1')
+DB_USER           = os.getenv('ARM_DB_USER', 'pinkmask')
+DB_PASS           = os.getenv('ARM_DB_PASS', '')
+DB_NAME           = os.getenv('ARM_DB_NAME', 'pinkmask_wp')
+REDIS_PASS        = os.getenv('ARM_REDIS_PASS', '')
 
 PLUGIN_PATHS = {
     'wc2odoo':  'wc2odoo/wc2odoo.php',
@@ -25,14 +50,13 @@ PLUGIN_PATHS = {
 }
 
 def run_sql_remote(sql):
-    # Write SQL to temp file on ARM to avoid quoting issues
-    import tempfile, base64
+    import base64
     encoded = base64.b64encode(sql.encode()).decode()
     cmd = (
         f"echo {encoded} | base64 -d | "
-        f"docker exec -i infra-mariadb-1 mysql -u{DB_USER} -p{DB_PASS} {DB_NAME} -s"
+        f"docker exec -i {MARIADB_CONTAINER} mysql -u{DB_USER} -p{DB_PASS} {DB_NAME} -s"
     )
-    r = subprocess.run(['ssh', 'arm', cmd], capture_output=True, text=True)
+    r = subprocess.run(['ssh', SSH_HOST, cmd], capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"SQL error: {r.stderr}")
     return r.stdout.strip()
@@ -56,11 +80,13 @@ def build_php_array(plugins):
     return 'a:' + str(len(plugins)) + ':{' + ';'.join(parts) + ';}'
 
 def flush_redis():
-    subprocess.run(['ssh', 'arm', 'docker exec infra-redis-1 redis-cli -a 3A0FdGziVlVgTlwGRtfVBgcmGW0T6VP FLUSHALL'],
-                   capture_output=True)
+    subprocess.run(
+        ['ssh', SSH_HOST, f'docker exec {REDIS_CONTAINER} redis-cli -a {REDIS_PASS} FLUSHALL'],
+        capture_output=True,
+    )
 
 def restart_php():
-    subprocess.run(['ssh', 'arm', 'docker restart infra-php-1'], capture_output=True)
+    subprocess.run(['ssh', SSH_HOST, f'docker restart {PHP_CONTAINER}'], capture_output=True)
     time.sleep(5)
 
 def swap(activate, deactivate=None):

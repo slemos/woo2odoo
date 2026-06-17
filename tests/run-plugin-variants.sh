@@ -14,6 +14,21 @@
 
 set -e
 
+# Cargar .env.arm si existe (un nivel arriba de tests/)
+ENV_FILE="$(dirname "$0")/../.env.arm"
+if [ -f "$ENV_FILE" ]; then
+    set -a; source "$ENV_FILE"; set +a
+fi
+
+# Defaults (por si .env.arm no está presente)
+ARM_SSH_ALIAS="${ARM_SSH_ALIAS:-arm}"
+ARM_PHP_CONTAINER="${ARM_PHP_CONTAINER:-infra-php-1}"
+ARM_WP_PATH="${ARM_WP_PATH:-/var/www/html}"
+ARM_HOST_PLUGIN_PATH="${ARM_HOST_PLUGIN_PATH:-/srv/pinkmask/wp-content/plugins/woo2odoo}"
+TEST_CUSTOMER_ID="${TEST_CUSTOMER_ID:-10}"
+TEST_COUPON="${TEST_COUPON:-PINK10}"
+SYNC_WAIT="${SYNC_WAIT_SECONDS:-20}"
+
 PLUGIN="${1:-woo2odoo}"
 RESULTS_DIR="$(dirname "$0")/results"
 mkdir -p "$RESULTS_DIR"
@@ -23,9 +38,9 @@ run_create_order() {
     local LABEL="$1"
     local EXTRA_ARGS="$2"
     echo "==> Creando orden variante: $LABEL"
-    OUTPUT=$(ssh arm "docker exec -e PHPUNIT_TESTING=0 \
-        -w /var/www/html/wp-content/plugins/woo2odoo \
-        infra-php-1 php -d memory_limit=512M \
+    OUTPUT=$(ssh "$ARM_SSH_ALIAS" "docker exec -e PHPUNIT_TESTING=0 \
+        -w ${ARM_WP_PATH}/wp-content/plugins/woo2odoo \
+        ${ARM_PHP_CONTAINER} php -d memory_limit=512M \
         tests/create-test-order.php --label $LABEL $EXTRA_ARGS" 2>&1)
     echo "$OUTPUT"
     ORDER_ID=$(echo "$OUTPUT" | grep '^ORDER_ID=' | tail -1 | cut -d= -f2 | tr -d '[:space:]')
@@ -36,17 +51,15 @@ run_verify() {
     local ORDER_ID="$1"
     local OUT_LABEL="$2"
     echo "==> Verificando en Odoo (Order #$ORDER_ID)..."
-    ssh arm "docker exec -e PHPUNIT_TESTING=1 \
-        -w /var/www/html/wp-content/plugins/woo2odoo \
-        infra-php-1 php -d memory_limit=256M \
+    ssh "$ARM_SSH_ALIAS" "docker exec -e PHPUNIT_TESTING=1 \
+        -w ${ARM_WP_PATH}/wp-content/plugins/woo2odoo \
+        ${ARM_PHP_CONTAINER} php -d memory_limit=256M \
         tests/verify-odoo-result.php $ORDER_ID $PLUGIN $OUT_LABEL" 2>&1
     # Copiar result JSON a local
-    ssh arm "cat /srv/pinkmask/wp-content/plugins/woo2odoo/tests/results/${OUT_LABEL}-result.json" \
+    ssh "$ARM_SSH_ALIAS" "cat ${ARM_HOST_PLUGIN_PATH}/tests/results/${OUT_LABEL}-result.json" \
         > "$RESULTS_DIR/${OUT_LABEL}-result.json" 2>/dev/null || true
     echo "==> Resultado guardado: $RESULTS_DIR/${OUT_LABEL}-result.json"
 }
-
-SYNC_WAIT=20  # segundos para esperar sync a Odoo
 
 echo "=========================================="
 echo "  Test de variantes para plugin: $PLUGIN"
@@ -61,25 +74,25 @@ echo "Esperando ${SYNC_WAIT}s para sync Odoo..."
 sleep $SYNC_WAIT
 run_verify "$ORDER1" "$LABEL"
 
-# ---- VARIANTE 2: Anónimo, con PINK10 ----
+# ---- VARIANTE 2: Anónimo, con cupón ----
 LABEL="${PLUGIN}-anon-pink10"
-run_create_order "$LABEL" "--coupon PINK10"
+run_create_order "$LABEL" "--coupon $TEST_COUPON"
 ORDER2="$ORDER_ID"
 echo "Esperando ${SYNC_WAIT}s para sync Odoo..."
 sleep $SYNC_WAIT
 run_verify "$ORDER2" "$LABEL"
 
-# ---- VARIANTE 3: Autenticado (ID=10), sin cupón ----
+# ---- VARIANTE 3: Autenticado, sin cupón ----
 LABEL="${PLUGIN}-auth"
-run_create_order "$LABEL" "--customer-id 10"
+run_create_order "$LABEL" "--customer-id $TEST_CUSTOMER_ID"
 ORDER3="$ORDER_ID"
 echo "Esperando ${SYNC_WAIT}s para sync Odoo..."
 sleep $SYNC_WAIT
 run_verify "$ORDER3" "$LABEL"
 
-# ---- VARIANTE 4: Autenticado (ID=10), con PINK10 ----
+# ---- VARIANTE 4: Autenticado, con cupón ----
 LABEL="${PLUGIN}-auth-pink10"
-run_create_order "$LABEL" "--customer-id 10 --coupon PINK10"
+run_create_order "$LABEL" "--customer-id $TEST_CUSTOMER_ID --coupon $TEST_COUPON"
 ORDER4="$ORDER_ID"
 echo "Esperando ${SYNC_WAIT}s para sync Odoo..."
 sleep $SYNC_WAIT

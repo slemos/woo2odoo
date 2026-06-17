@@ -339,6 +339,14 @@ final class Woo2Odoo_Plugin_Settings {
 					'section'     => 'export',
 					'description' => __( 'URL shown as Terms & Conditions on customer invoices (e.g. https://pink-mask.cl/terminos-y-condiciones/). Leave empty to use Odoo default.', 'woo2odoo-plugin' ),
 				);
+				$settings_fields['payment_journal_id'] = array(
+					'name'        => __( 'Payment Journal (Transbank / MercadoPago)', 'woo2odoo-plugin' ),
+					'type'        => 'select',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'Transit journal for electronic payments (Transbank, MercadoPago). Use a dedicated transit journal — NOT the operational bank account. If not set, outstanding payments will not be created automatically.', 'woo2odoo-plugin' ),
+					'options'     => $this->get_payment_journals_select(),
+				);
 				break;
 			default:
 				# code...
@@ -607,6 +615,31 @@ final class Woo2Odoo_Plugin_Settings {
 		);
 		//for each journal, add to the select
 		foreach ($journals as $journal) {
+			$journals_select[ $journal->id ] = $journal->name;
+		}
+
+		return $journals_select;
+	}
+
+	private function get_payment_journals_select() {
+		$company = $this->get_value( 'export_order_company', '', 'export' );
+		if ( empty( $company ) ) {
+			return array( '' => __( 'Select a company first', 'woo2odoo-plugin' ) );
+		}
+
+		$journals = ( new Woo2Odoo_Client() )->search_read(
+			'account.journal',
+			array(
+				array( 'company_id', '=', (int) $company ),
+				array( 'type', 'in', array( 'bank', 'cash' ) ),
+			),
+			array( 'id', 'name' ),
+			null,
+			100
+		);
+
+		$journals_select = array( '' => __( '— Select payment journal —', 'woo2odoo-plugin' ) );
+		foreach ( $journals as $journal ) {
 			$journals_select[ $journal->id ] = $journal->name;
 		}
 

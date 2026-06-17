@@ -1,0 +1,34 @@
+{
+    "plugin": "woo2odoo",
+    "wc_order_id": 17682,
+    "timestamp": "2026-06-11T03:17:49+00:00",
+    "sale_order": {
+        "id": 2386,
+        "name": "S02387",
+        "origin": "17682",
+        "amount_total": 29082,
+        "amount_untaxed": 24439,
+        "state": "sale",
+        "invoice_status": "invoiced",
+        "partner_id": [
+            2453,
+            "Carolina Diaz lopez"
+        ],
+        "date_order": "2026-06-09 16:05:45"
+    },
+    "invoice": {
+        "id": 11987,
+        "name": "BEL 007210",
+        "invoice_origin": "S02387",
+        "amount_total": 29084,
+        "amount_untaxed": 24440,
+        "state": "draft",
+        "payment_state": "not_paid",
+        "l10n_latam_document_type_id": [
+            5,
+            "(39) Electronic Receipt"
+        ],
+        "l10n_latam_document_number": "007210"
+    },
+    "errors": []
+}

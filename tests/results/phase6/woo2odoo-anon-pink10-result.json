@@ -1,0 +1,23 @@
+{
+    "plugin": "woo2odoo",
+    "wc_order_id": 17686,
+    "timestamp": "2026-06-11T12:44:45+00:00",
+    "sale_order": {
+        "id": 2392,
+        "name": "S02393",
+        "origin": "17686",
+        "amount_total": 24481,
+        "amount_untaxed": 20572,
+        "state": "sale",
+        "invoice_status": "to invoice",
+        "partner_id": [
+            2458,
+            ""
+        ],
+        "date_order": "2026-06-11 08:43:51"
+    },
+    "invoice": null,
+    "errors": [
+        "No invoice found linked to sale order S02393"
+    ]
+}

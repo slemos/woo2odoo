@@ -86,6 +86,7 @@ final class Woo2Odoo_Plugin {
 
 		if ( is_admin() ) {
 			$this->admin = Woo2Odoo_Plugin_Admin::instance();
+			Woo2Odoo_Admin_Order_Metabox::register();
 		}
 		// Admin - End
 
@@ -97,6 +98,9 @@ final class Woo2Odoo_Plugin {
 		// Auto-sync orders to Odoo when status changes to processing or on-hold
 		add_action( 'woocommerce_order_status_processing', array( $this, 'auto_sync_order' ), 10, 1 );
 		add_action( 'woocommerce_order_status_on-hold', array( $this, 'auto_sync_order' ), 10, 1 );
+
+		// Auto-create credit note in Odoo when WC registers a refund
+		add_action( 'woocommerce_order_refunded', array( $this, 'auto_refund_order' ), 10, 2 );
 	}
 
 	/**
@@ -111,6 +115,21 @@ final class Woo2Odoo_Plugin {
 		} catch ( \Throwable $e ) {
 			// Log but don't crash checkout flow
 			error_log( 'woo2odoo auto_sync_order failed for order ' . $order_id . ': ' . $e->getMessage() );
+		}
+	}
+
+	/**
+	 * Automatically create a credit note in Odoo when WC registers a refund.
+	 *
+	 * @param int $order_id  WooCommerce order ID.
+	 * @param int $refund_id WooCommerce refund post ID.
+	 */
+	public function auto_refund_order( int $order_id, int $refund_id ): void {
+		try {
+			$order_manager = new Woo2Odoo_Order_Manager();
+			$order_manager->refund_sync( $order_id, $refund_id );
+		} catch ( \Throwable $e ) {
+			error_log( 'woo2odoo auto_refund_order failed for order ' . $order_id . ': ' . $e->getMessage() );
 		}
 	}
 

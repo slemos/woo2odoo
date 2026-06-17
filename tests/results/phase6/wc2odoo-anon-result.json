@@ -1,0 +1,34 @@
+{
+    "plugin": "wc2odoo",
+    "wc_order_id": 17689,
+    "timestamp": "2026-06-11T12:59:06+00:00",
+    "sale_order": {
+        "id": 2395,
+        "name": "S02396",
+        "origin": "17689",
+        "amount_total": 25980,
+        "amount_untaxed": 21832,
+        "state": "sale",
+        "invoice_status": "invoiced",
+        "partner_id": [
+            2458,
+            "Sebastian Lemos"
+        ],
+        "date_order": "2026-06-11 08:46:52"
+    },
+    "invoice": {
+        "id": 11993,
+        "name": "BEL 007212",
+        "invoice_origin": "S02396",
+        "amount_total": 25980,
+        "amount_untaxed": 21832,
+        "state": "draft",
+        "payment_state": "not_paid",
+        "l10n_latam_document_type_id": [
+            5,
+            "(39) Electronic Receipt"
+        ],
+        "l10n_latam_document_number": "007212"
+    },
+    "errors": []
+}
