@@ -73,39 +73,39 @@ class OrderManagerTest extends TestCase {
     public function testGetCustomerData() {
         $user = $this->createMock(\WP_User::class);
         $user->method('__get')->willReturnMap([
-            ['user_email', 'slemos.satue@gmail.com'],
+            ['user_email', 'test@example.com'],
             ['ID', 1]
         ]);
 
         // Assert that the user_email property is set correctly
-        $this->assertEquals('slemos.satue@gmail.com', $user->user_email);
+        $this->assertEquals('test@example.com', $user->user_email);
         
         $order = $this->createMock(\WC_Order::class);
         $order->method('get_address')->willReturnMap([
             ['billing', [
-                'first_name' => 'Sebastian',
-                'last_name' => 'Lemos',
+                'first_name' => 'Test',
+                'last_name' => 'Customer',
                 'company' => 'Company',
-                'address_1' => 'La CaPitanía 81',
+                'address_1' => 'Calle Falsa 123',
                 'address_2' => '',
                 'city' => 'Santiago',
                 'state' => 'Región Metropolitana de Santiago',
                 'postcode' => '',
                 'country' => 'CL',
-                'email' => 'slemos.satue@gmail.com',
+                'email' => 'test@example.com',
                 'phone' => '555-555-5555'
             ]],
             ['shipping', [
                 'first_name' => 'Jane',
                 'last_name' => 'Doe',
                 'company' => 'Company',
-                'address_1' => 'La Capitanía 81',
+                'address_1' => 'Calle Falsa 123',
                 'address_2' => '',
                 'city' => 'Santiago',
                 'state' => 'Región Metropolitana de Santiago',
                 'postcode' => '',
                 'country' => 'CL',
-                'email' => 'slemos.satue@gmail.com',
+                'email' => 'test@example.com',
                 'phone' => '555-555-5556'
             ]]
         ]);
@@ -222,29 +222,29 @@ class OrderManagerTest extends TestCase {
         $mockOrder->method('get_items')->willReturn($items);
         $mockOrder->method('get_address')->willReturnMap([
             ['billing', [
-                'first_name' => 'Sebastian',
-                'last_name' => 'Lemos',
+                'first_name' => 'Test',
+                'last_name' => 'Customer',
                 'company' => 'Company',
-                'address_1' => 'La CaPitanía 81',
+                'address_1' => 'Calle Falsa 123',
                 'address_2' => '',
                 'city' => 'Santiago',
                 'state' => 'Región Metropolitana de Santiago',
                 'postcode' => '',
                 'country' => 'CL',
-                'email' => 'slemos.satue@gmail.com',
+                'email' => 'test@example.com',
                 'phone' => '555-555-5555'
             ]],
             ['shipping', [
                 'first_name' => 'Jane',
                 'last_name' => 'Doe',
                 'company' => 'Company',
-                'address_1' => 'La Capitanía 81',
+                'address_1' => 'Calle Falsa 123',
                 'address_2' => '',
                 'city' => 'Santiago',
                 'state' => 'Región Metropolitana de Santiago',
                 'postcode' => '',
                 'country' => 'CL',
-                'email' => 'slemos.satue@gmail.com',
+                'email' => 'test@example.com',
                 'phone' => '555-555-5556'
             ]]
         ]);
@@ -301,12 +301,12 @@ class OrderManagerTest extends TestCase {
         ]);
         $user = $this->createMock(\WP_User::class);
         $user->method('__get')->willReturnMap([
-            ['user_email', 'slemos.satue@gmail.com'],
+            ['user_email', 'test@example.com'],
             ['ID', 1]
         ]);
 
         // Assert that the user_email property is set correctly
-        $this->assertEquals('slemos.satue@gmail.com', $user->user_email);
+        $this->assertEquals('test@example.com', $user->user_email);
         
         $orderId = $this->getNextOrderId();
 
@@ -435,7 +435,7 @@ class OrderManagerTest extends TestCase {
         $order->method('get_items')->willReturn([$item1]);
 
         // create a odoo_order array with id
-        $odoo_order = 956;
+        $odoo_order = 956;  // intentionally non-existent order to test failure path
 
         $result = $this->orderManager->add_order_line_items($order, $odoo_order, 1);
         $this->assertFalse($result);
@@ -491,8 +491,8 @@ class OrderManagerTest extends TestCase {
         $order = $this->createMock(\WC_Order::class);
         $order->method('get_items')->willReturn([$item1, $item2]);
 
-        // create a odoo_order array with id
-        $odoo_order = 956;
+        // Use a draft order in arm-testing Odoo that accepts new line items
+        $odoo_order = 2388;
 
         $result = $this->orderManager->add_order_line_items($order, $odoo_order, 1);
         $this->assertTrue($result);
