@@ -339,6 +339,33 @@ final class Woo2Odoo_Plugin_Settings {
 					'section'     => 'export',
 					'description' => __( 'URL shown as Terms & Conditions on customer invoices (e.g. https://pink-mask.cl/terminos-y-condiciones/). Leave empty to use Odoo default.', 'woo2odoo-plugin' ),
 				);
+				$settings_fields['payment_journal_id'] = array(
+					'name'        => __( 'Payment Journal (Transbank / MercadoPago)', 'woo2odoo-plugin' ),
+					'type'        => 'select',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'Transit journal for electronic payments (Transbank, MercadoPago). Use a dedicated transit journal — NOT the operational bank account. If not set, outstanding payments will not be created automatically.', 'woo2odoo-plugin' ),
+					'options'     => $this->get_payment_journals_select(),
+				);
+				$settings_fields['odoo_import_update_stocks'] = array(
+					'name'        => __( 'Sync Stock from Odoo', 'woo2odoo-plugin' ),
+					'type'        => 'checkbox',
+					'default'     => 'false',
+					'section'     => 'export',
+					'description' => __( 'Enable automatic stock synchronization from Odoo to WooCommerce', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['odoo_import_stocks_frequency'] = array(
+					'name'        => __( 'Stock Sync Frequency', 'woo2odoo-plugin' ),
+					'type'        => 'select',
+					'default'     => 'daily',
+					'section'     => 'export',
+					'description' => __( 'How often to synchronize product stock from Odoo', 'woo2odoo-plugin' ),
+					'options'     => array(
+						'hourly'     => __( 'Every hour', 'woo2odoo-plugin' ),
+						'twicedaily' => __( 'Twice daily', 'woo2odoo-plugin' ),
+						'daily'      => __( 'Daily', 'woo2odoo-plugin' ),
+					),
+				);
 				break;
 			default:
 				# code...
@@ -607,6 +634,31 @@ final class Woo2Odoo_Plugin_Settings {
 		);
 		//for each journal, add to the select
 		foreach ($journals as $journal) {
+			$journals_select[ $journal->id ] = $journal->name;
+		}
+
+		return $journals_select;
+	}
+
+	private function get_payment_journals_select() {
+		$company = $this->get_value( 'export_order_company', '', 'export' );
+		if ( empty( $company ) ) {
+			return array( '' => __( 'Select a company first', 'woo2odoo-plugin' ) );
+		}
+
+		$journals = ( new Woo2Odoo_Client() )->search_read(
+			'account.journal',
+			array(
+				array( 'company_id', '=', (int) $company ),
+				array( 'type', 'in', array( 'bank', 'cash' ) ),
+			),
+			array( 'id', 'name' ),
+			null,
+			100
+		);
+
+		$journals_select = array( '' => __( '— Select payment journal —', 'woo2odoo-plugin' ) );
+		foreach ( $journals as $journal ) {
 			$journals_select[ $journal->id ] = $journal->name;
 		}
 
