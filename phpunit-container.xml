@@ -14,6 +14,7 @@
         <testsuite name="default">
             <file>tests/test-odooclient.php</file>
             <file>tests/test-ordermanager.php</file>
+            <file>tests/test-stockmanager.php</file>
         </testsuite>
     </testsuites>
 </phpunit>
