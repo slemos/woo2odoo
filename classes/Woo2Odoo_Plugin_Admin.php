@@ -48,6 +48,10 @@ final class Woo2Odoo_Plugin_Admin {
 
 		// Handle custom button click
 		add_action( 'admin_post_woo2odoo_sync_order', array( $this, 'handle_sync_order' ) );
+
+		// Order action button inside WC order edit screen
+		add_filter( 'woocommerce_order_actions', array( $this, 'register_order_action' ) );
+		add_action( 'woocommerce_order_action_woo2odoo_sync_order', array( $this, 'process_order_action' ) );
 	}
 
 	/**
@@ -142,7 +146,7 @@ final class Woo2Odoo_Plugin_Admin {
 		$sections = Woo2Odoo_Plugin::instance()->settings->get_settings_sections();
 		if ( 0 < count( $sections ) ) {
 			foreach ( $sections as $k => $v ) {
-				register_setting( 'woo2odoo-plugin-settings-' . sanitize_title_with_dashes( $k ), 'woo2odoo-plugin-' . $k, array( $this, 'validate_settings' ) );
+				register_setting( 'woo2odoo-plugin-settings-' . sanitize_title_with_dashes( $k ), 'Woo2Odoo-plugin-' . $k, array( $this, 'validate_settings' ) );
 				add_settings_section( sanitize_title_with_dashes( $k ), $v, array( $this, 'render_settings' ), 'woo2odoo-plugin-' . $k, $k, $k );
 			}
 		}
@@ -178,8 +182,18 @@ final class Woo2Odoo_Plugin_Admin {
 	 */
 	public function validate_settings( $input ) {
 		$sections = Woo2Odoo_Plugin::instance()->settings->get_settings_sections();
-		$tab      = $this->get_current_tab( $sections );
-		return Woo2Odoo_Plugin::instance()->settings->validate_settings( $input, $tab );
+
+		// Determine section from the sanitize_option_{option_name} filter WordPress applies
+		// during save (options.php POST). $_GET['tab'] is not available in that context.
+		$token   = Woo2Odoo_Plugin::instance()->token;
+		$filter  = current_filter(); // e.g. 'sanitize_option_woo2odoo-plugin-export'
+		$section = str_replace( 'sanitize_option_' . $token . '-', '', $filter );
+
+		if ( ! isset( $sections[ $section ] ) ) {
+			$section = $this->get_current_tab( $sections );
+		}
+
+		return Woo2Odoo_Plugin::instance()->settings->validate_settings( $input, $section );
 	}
 
 	/**
@@ -296,7 +310,7 @@ final class Woo2Odoo_Plugin_Admin {
 	public function handle_sync_order() {
 		// Check for nonce first.
 		check_admin_referer( 'woo2odoo_plugin_sync_order', 'woo2odoo_plugin_sync_order' );
-		if ( isset( $_POST['woo2odoo_sync_order'] ) && 1 === $_POST['woo2odoo_sync_order'] && isset( $_POST['woo2odoo-plugin-tools']['order'] ) && ! empty( $_POST['woo2odoo-plugin-tools']['order'] ) ) {
+		if ( isset( $_POST['woo2odoo_sync_order'] ) && '1' === (string) $_POST['woo2odoo_sync_order'] && isset( $_POST['woo2odoo-plugin-tools']['order'] ) && ! empty( $_POST['woo2odoo-plugin-tools']['order'] ) ) {
 			// Pass the order id to the order_sync function.
 			$this->order_sync( sanitize_text_field( $_POST['woo2odoo-plugin-tools']['order'] ) );
 			add_settings_error(
@@ -308,6 +322,21 @@ final class Woo2Odoo_Plugin_Admin {
 			set_transient( 'settingsesc_html_errors', get_settings_errors(), 30 );
 			wp_safe_redirect( add_query_arg( array( 'settings-updated' => 'true' ), admin_url( 'options-general.php?page=woo2odoo-plugin' ) ) );
 			exit;
+		}
+	}
+
+	public function register_order_action( $actions ) {
+		$actions['woo2odoo_sync_order'] = __( 'Sincronizar con Odoo', 'woo2odoo-plugin' );
+		return $actions;
+	}
+
+	public function process_order_action( $order ) {
+		$order_id     = $order->get_id();
+		$order_manager = new Woo2Odoo_Order_Manager();
+		if ( $order_manager->order_sync( $order_id ) ) {
+			$order->add_order_note( __( 'Woo2Odoo: orden sincronizada manualmente con Odoo.', 'woo2odoo-plugin' ) );
+		} else {
+			$order->add_order_note( __( 'Woo2Odoo: error al sincronizar con Odoo. Revisa el log de WooCommerce.', 'woo2odoo-plugin' ) );
 		}
 	}
 

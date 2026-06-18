@@ -347,6 +347,25 @@ final class Woo2Odoo_Plugin_Settings {
 					'description' => __( 'Transit journal for electronic payments (Transbank, MercadoPago). Use a dedicated transit journal — NOT the operational bank account. If not set, outstanding payments will not be created automatically.', 'woo2odoo-plugin' ),
 					'options'     => $this->get_payment_journals_select(),
 				);
+				$settings_fields['odoo_import_update_stocks'] = array(
+					'name'        => __( 'Sync Stock from Odoo', 'woo2odoo-plugin' ),
+					'type'        => 'checkbox',
+					'default'     => 'false',
+					'section'     => 'export',
+					'description' => __( 'Enable automatic stock synchronization from Odoo to WooCommerce', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['odoo_import_stocks_frequency'] = array(
+					'name'        => __( 'Stock Sync Frequency', 'woo2odoo-plugin' ),
+					'type'        => 'select',
+					'default'     => 'daily',
+					'section'     => 'export',
+					'description' => __( 'How often to synchronize product stock from Odoo', 'woo2odoo-plugin' ),
+					'options'     => array(
+						'hourly'     => __( 'Every hour', 'woo2odoo-plugin' ),
+						'twicedaily' => __( 'Twice daily', 'woo2odoo-plugin' ),
+						'daily'      => __( 'Daily', 'woo2odoo-plugin' ),
+					),
+				);
 				break;
 			default:
 				# code...

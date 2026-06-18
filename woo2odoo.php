@@ -54,3 +54,20 @@ function woo2odoo_main_instance() {
 	return Woo2Odoo_Plugin::instance();
 }
 add_action( 'plugins_loaded', 'woo2odoo_main_instance' );
+
+register_activation_hook( __FILE__, 'woo2odoo_on_activate' );
+register_deactivation_hook( __FILE__, 'woo2odoo_on_deactivate' );
+
+function woo2odoo_on_activate() {
+	$export_settings = get_option( 'Woo2Odoo-plugin-export', array() );
+	if ( ! empty( $export_settings['odoo_import_update_stocks'] ) && 'true' === $export_settings['odoo_import_update_stocks'] ) {
+		if ( ! wp_next_scheduled( 'odoo_process_import_update_stocks' ) ) {
+			$frequency = $export_settings['odoo_import_stocks_frequency'] ?? 'daily';
+			wp_schedule_event( time(), $frequency, 'odoo_process_import_update_stocks' );
+		}
+	}
+}
+
+function woo2odoo_on_deactivate() {
+	wp_clear_scheduled_hook( 'odoo_process_import_update_stocks' );
+}

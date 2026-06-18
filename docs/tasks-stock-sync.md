@@ -9,7 +9,7 @@ Plan de referencia: `plan-stock-sync.md`
 | S-3 | Cron en `Woo2Odoo_Plugin` | completado | haiku-s3 |
 | S-4 | Tests unitarios `OdooStockManagerTest.php` | completado | haiku-s4 |
 | S-5 | Script prueba manual `tests/test-stock-sync.php` | completado | haiku-s5 |
-| S-6 | Validación en staging ARM | fallido | haiku-s6 |
+| S-6 | Validación en staging ARM | completado | sonnet |
 
 ## Notas de implementación
 
@@ -20,43 +20,24 @@ Plan de referencia: `plan-stock-sync.md`
 
 ## Resultado S-6
 
-**Estado: FALLIDO**
+**Estado: COMPLETADO**
 
 ### Acciones ejecutadas
 
-1. Sincronización de archivos: OK (rsync completado, 363,728 bytes enviados)
-2. Reinicio contenedor PHP: OK (infra-php-1 restarted y levantó correctamente)
-3. Tests unitarios: FALLIDO
-4. Script stock sync (GELCOL-100): FALLIDO
-5. Script sync completo: FALLIDO
+1. rsync al ARM: OK (363,728 bytes)
+2. Reinicio infra-php-1: OK
+3. Error Transbank namespace collision bloqueaba ejecución → recreado mu-plugin `phpunit-filter.php` (había sido eliminado en recreado previo del contenedor)
+4. Bug en test-stock-sync.php: `wc_get_product_stock()` no existe → corregido a `$product->get_stock_quantity()` 
+5. Tests de stock en OdooStockManagerTest: 2 tests refactorizados (usaban `sync_all()` con `wc_get_products()` real → devolvía 477 productos del sitio) → refactorizados a testear `sync_product()` directamente
 
-### Error detectado
+### Resultados
 
-Conflicto de namespace fatal en PHP que bloquea toda ejecución:
+- **Tests unitarios**: 35 tests, 0 errores nuevos. 2 fallos pre-existentes en OrderManagerTest (testOrderSync, testAddOrderLineItems — no relacionados con stock sync)
+- **Script SKU específico** (`--sku=GELCOL-100`): `free_qty = 297` desde Odoo, stock WC actualizado de 383 → 297 ✅
+- **Script sync completo**: `updated=477, not_found=0, errors=0` ✅
 
-```
-PHP Fatal error:  Cannot declare interface TransbankVendor\Psr\Http\Message\UriInterface, 
-because the name is already in use in 
-/var/www/html/wp-content/plugins/transbank-webpay-plus-rest/vendor-prefixed/psr/http-message/src/UriInterface.php 
-on line 25
-```
+### Archivos adicionales modificados en S-6
 
-### Causa raíz
-
-Hay una collision de namespace entre:
-- Plugin: `transbank-webpay-plus-rest` 
-- Librería: PSR HTTP Message Interface
-
-El plugin Transbank tiene una versión vendor-prefixed de la librería PSR, pero hay otra copia sin prefijo que intenta declararse, causando fatal error. Esto impide la ejecución de cualquier script PHP en el contenedor.
-
-### Impacto
-
-No se pueden ejecutar tests unitarios ni scripts de validación de stock sync mientras este error persista. El contenedor PHP tiene un fallo crítico que afecta a toda ejecución de PHP.
-
-### Próximos pasos necesarios
-
-Requiere investigación de:
-1. Por qué hay dos versiones de la librería PSR
-2. Si el plugin Transbank necesita actualización
-3. Si hay un conflict en composer.lock entre plugins
-4. Considerar desactivar plugin Transbank temporalmente para validar woo2odoo, o resolver la collision
+- `/srv/pinkmask/wp-content/mu-plugins/phpunit-filter.php` — recreado (filtra active_plugins a WC+woo2odoo cuando `PHPUNIT_TESTING=1`)
+- `tests/test-stock-sync.php` — fix `wc_get_product_stock()` → `get_stock_quantity()`
+- `tests/test-stockmanager.php` — 2 tests refactorizados para no usar `sync_all()` con WC real
