@@ -8,7 +8,9 @@ bin/
 wordpress/
 woocommerce/
 .local/*
-.env
+.env*
+!.env*.example
 wp
 composer.lock
-
+tests/results/
+tests/last_order_id.txt
