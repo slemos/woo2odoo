@@ -637,7 +637,13 @@ class Woo2Odoo_Order_Manager {
 			// If user not exists in Odoo then Create New Customer in odoo.
 			if ( empty( $customer_id ) || false === $customer_id ) {
 				$this->client->log_info( 'User not found in Odoo, creating new', array( 'User Email' => $email ) );
-				$customer_id = $this->create_or_update_customer( $user, null );
+				// Registered users build the partner from WP_User + user meta. Guest
+				// orders have no WP_User ($order->get_user() === false), so build the
+				// partner from the order's billing address instead. Without this,
+				// guest checkouts fail with "Customer data is empty" and never sync.
+				$customer_id = $user
+					? $this->create_or_update_customer( $user, null )
+					: $this->create_customer_from_order( $order, null );
 			} else {
 				// Remove std class object from the result to match the create return value.
 				$customer_id = (int) $customer_id->id;
@@ -718,6 +724,69 @@ class Woo2Odoo_Order_Manager {
 			'l10n_cl_sii_taxpayer_type'         => '1',
 			'l10n_cl_dte_email'                 => isset( $all_meta_for_user['billing_email'][0] ) ? $all_meta_for_user['billing_email'][0] : $customer_data->user_email,
 			'l10n_cl_activity_description'      => !empty( $all_meta_for_user['billing_giro'][0] ) ? $all_meta_for_user['billing_giro'][0] : 'Manicurista',
+		);
+
+		if ( $customer_id ) {
+			$response = $this->client->update_record( 'res.partner', $customer_id, $data );
+		} else {
+			$response = $this->client->create_record( 'res.partner', $data );
+		}
+
+		return $response;
+	}
+
+	/**
+	 * Create (or update) an Odoo partner from a guest order's billing address.
+	 *
+	 * Guest checkouts have no WP_User, so the data that create_or_update_customer()
+	 * reads from user meta is unavailable. This builds the same res.partner payload
+	 * from $order->get_address( 'billing' ) plus the order's _billing_rut meta.
+	 *
+	 * @param WC_Order  $order       The guest order.
+	 * @param int|null  $customer_id Existing Odoo partner id to update, or null to create.
+	 */
+	public function create_customer_from_order( $order, $customer_id ) {
+
+		$billing = $order->get_address( 'billing' );
+
+		if ( empty( $billing['email'] ) ) {
+			$this->client->log_error( 'Error creating customer in Odoo', array( 'msg' => 'Guest order has no billing email' ) );
+			return false;
+		}
+
+		$billing_state   = isset( $billing['state'] ) ? $billing['state'] : '';
+		$billing_country = !empty( $billing['country'] ) ? $billing['country'] : 'CL';
+		$state_county    = $this->get_state_and_country_codes( $billing_state, $billing_country );
+
+		$customer_name = trim( $billing['first_name'] . ' ' . $billing['last_name'] );
+		if ( empty( $customer_name ) ) {
+			$customer_name = $billing['email'];
+		}
+
+		// RUT is stored as order meta (guest orders have no user meta). Prefer the
+		// canonical _billing_rut, fall back to billing_rut.
+		$rut = $order->get_meta( '_billing_rut' );
+		if ( empty( $rut ) ) {
+			$rut = $order->get_meta( 'billing_rut' );
+		}
+
+		$data = array(
+			'name'                              => $customer_name,
+			'display_name'                      => $customer_name,
+			'email'                             => $billing['email'],
+			'customer_rank'                     => 1,
+			'type'                              => 'contact',
+			'phone'                             => isset( $billing['phone'] ) ? $billing['phone'] : '',
+			'street'                            => isset( $billing['address_1'] ) ? $billing['address_1'] : '',
+			'city'                              => isset( $billing['city'] ) ? $billing['city'] : '',
+			'state_id'                          => $state_county['state'],
+			'country_id'                        => $state_county['country'],
+			'zip'                               => isset( $billing['postcode'] ) ? $billing['postcode'] : '',
+			'l10n_latam_identification_type_id' => 4,
+			'vat'                               => $this->format_rut( $rut ),
+			'l10n_cl_sii_taxpayer_type'         => '1',
+			'l10n_cl_dte_email'                 => $billing['email'],
+			'l10n_cl_activity_description'      => 'Manicurista',
 		);
 
 		if ( $customer_id ) {
