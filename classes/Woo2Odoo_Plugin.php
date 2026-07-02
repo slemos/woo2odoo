@@ -87,6 +87,13 @@ final class Woo2Odoo_Plugin {
 		if ( is_admin() ) {
 			$this->admin = Woo2Odoo_Plugin_Admin::instance();
 			Woo2Odoo_Admin_Order_Metabox::register();
+			Woo2Odoo_Sync_Status_Tab::register();
+
+			// Column "Odoo" in the orders list (HPOS + classic)
+			add_filter( 'manage_woocommerce_page_wc-orders_columns', array( $this, 'add_sync_column' ) );
+			add_action( 'manage_woocommerce_page_wc-orders_custom_column', array( $this, 'render_sync_column' ), 10, 2 );
+			add_filter( 'manage_shop_order_posts_columns', array( $this, 'add_sync_column' ) );
+			add_action( 'manage_shop_order_posts_custom_column', array( $this, 'render_sync_column_classic' ), 10, 2 );
 		}
 		// Admin - End
 
@@ -267,6 +274,38 @@ final class Woo2Odoo_Plugin {
 				$wpdb->update( $wpdb->options, array( 'autoload' => 'off' ), array( 'option_name' => $option ) );
 				wp_cache_delete( 'alloptions', 'options' );
 			}
+		}
+	}
+
+	public function add_sync_column( array $columns ): array {
+		$columns['woo2odoo_sync'] = 'Odoo';
+		return $columns;
+	}
+
+	public function render_sync_column( string $column, \WC_Order $order ): void {
+		if ( 'woo2odoo_sync' !== $column ) {
+			return;
+		}
+		$status = $order->get_meta( '_woo2odoo_sync_status' ) ?: 'none';
+		$dots   = array(
+			'synced'  => array( '🟢', 'Sincronizado' ),
+			'failed'  => array( '🔴', 'Error' ),
+			'pending' => array( '🟡', 'Pendiente' ),
+			'none'    => array( '⚪', 'Sin intentar' ),
+		);
+		[ $dot, $label ] = $dots[ $status ] ?? $dots['none'];
+		$error = $order->get_meta( '_woo2odoo_sync_error' );
+		$title = $error ? esc_attr( $label . ': ' . $error ) : esc_attr( $label );
+		echo '<span title="' . $title . '" style="font-size:16px;line-height:1;">' . $dot . '</span>';
+	}
+
+	public function render_sync_column_classic( string $column, int $post_id ): void {
+		if ( 'woo2odoo_sync' !== $column ) {
+			return;
+		}
+		$order = wc_get_order( $post_id );
+		if ( $order ) {
+			$this->render_sync_column( $column, $order );
 		}
 	}
 

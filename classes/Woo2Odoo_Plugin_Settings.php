@@ -226,12 +226,10 @@ final class Woo2Odoo_Plugin_Settings {
 	public function get_settings_sections() {
 		$settings_sections = array();
 
-		$settings_sections['connection'] = __( 'Connection', 'woo2odoo_plugin' );
-		$settings_sections['export']     = __( 'Export', 'woo2odoo_plugin' );
-		$settings_sections['tools']      = __( 'Tools', 'woo2odoo_plugin' );
-		// Add your new sections below here.
-		// Admin tabs will be created for each section.
-		// Don't forget to add fields for the section in the get_settings_fields() function below
+		$settings_sections['connection']  = __( 'Connection', 'woo2odoo_plugin' );
+		$settings_sections['export']      = __( 'Export', 'woo2odoo_plugin' );
+		$settings_sections['tools']       = __( 'Tools', 'woo2odoo_plugin' );
+		$settings_sections['sync-status'] = __( 'Estado de Sync', 'woo2odoo_plugin' );
 		return (array) apply_filters( 'woo2odoo_plugin_settings_sections', $settings_sections );
 	}
 

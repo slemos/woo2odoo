@@ -78,10 +78,34 @@ class Woo2Odoo_Order_Manager {
 		$this->client = new Woo2Odoo_Client();
 	}
 
+	/**
+	 * Persist sync status, date and optional error message on the WC order.
+	 * Accepts an already-loaded order to avoid a redundant DB fetch inside loops.
+	 */
+	private function set_sync_status( int $order_id, string $status, string $error = '', ?\WC_Abstract_Order $order = null ): void {
+		if ( ! $order ) {
+			$order = wc_get_order( $order_id );
+		}
+		if ( ! $order ) {
+			return;
+		}
+		$order->update_meta_data( '_woo2odoo_sync_status', $status );
+		$order->update_meta_data( '_woo2odoo_sync_date', current_time( 'mysql' ) );
+		if ( $error !== '' ) {
+			$order->update_meta_data( '_woo2odoo_sync_error', mb_substr( $error, 0, 255 ) );
+		} elseif ( 'synced' === $status ) {
+			$order->delete_meta_data( '_woo2odoo_sync_error' );
+		}
+		$order->save();
+	}
+
 	public function order_sync( $order_id ) {
 		if ( !$this->client->authenticate() ) {
+			$this->set_sync_status( (int) $order_id, 'failed', 'Odoo auth failed' );
 			return false;
 		}
+
+		$this->set_sync_status( (int) $order_id, 'pending' );
 
 		try {
 			$order = wc_get_order( $order_id );
@@ -95,6 +119,7 @@ class Woo2Odoo_Order_Manager {
 			$customer_data = $this->get_customer_data( $order );
 			if ( !$customer_data ) {
 				$this->client->log_error( 'Error getting customer data', array( 'order_id' => $order_id ) );
+				$this->set_sync_status( (int) $order_id, 'failed', 'Customer data unavailable', $order );
 				return false;
 			}
 			// Search if the order exists in Odoo
@@ -213,9 +238,11 @@ class Woo2Odoo_Order_Manager {
 
 		} catch (Exception $e) {
 			$this->client->log_exception( 'Odoo order_sync failed', $e );
+			$this->set_sync_status( (int) $order_id, 'failed', $e->getMessage() );
 			return false;
 		}
 
+		$this->set_sync_status( (int) $order_id, 'synced', '', $order );
 		return true;
 	}
 
@@ -1402,6 +1429,13 @@ class Woo2Odoo_Order_Manager {
 
 		} catch ( Exception $e ) {
 			$this->client->log_exception( 'refund_sync failed', $e );
+			$wc_order = wc_get_order( $order_id );
+			if ( $wc_order ) {
+				$wc_order->update_meta_data( '_woo2odoo_refund_sync_status', 'failed' );
+				$wc_order->update_meta_data( '_woo2odoo_refund_sync_error', mb_substr( $e->getMessage(), 0, 255 ) );
+				$wc_order->update_meta_data( '_woo2odoo_refund_sync_date', current_time( 'mysql' ) );
+				$wc_order->save();
+			}
 			return false;
 		}
 	}
