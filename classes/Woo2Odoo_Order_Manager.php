@@ -106,6 +106,11 @@ class Woo2Odoo_Order_Manager {
 						'=',
 						"$order_id",
 					),
+					array(
+						'state',
+						'!=',
+						'cancel',
+					),
 				),
 				array( 'id', 'amount_total', 'state', 'invoice_status' ),
 				null,
@@ -114,6 +119,20 @@ class Woo2Odoo_Order_Manager {
 				array( 'single' => true )
 			);
 			$is_new_order = false;
+			if ( $odoo_order ) {
+				$order->add_order_note(
+					"Woo2Odoo: sincronización bloqueada — existe un pedido de venta activo en Odoo (ID {$odoo_order->id}, estado: {$odoo_order->state}). Cancela o anula el pedido en Odoo antes de re-sincronizar."
+				);
+				$this->client->log_warning(
+					'Sync blocked: active SO already exists in Odoo',
+					array(
+						'order_id'      => $order_id,
+						'odoo_order_id' => $odoo_order->id,
+						'odoo_state'    => $odoo_order->state,
+					)
+				);
+				return false;
+			}
 			if ( !$odoo_order ) {
 				// Create the order in Odoo
 				$order_data = array(
