@@ -180,6 +180,8 @@ class Woo2Odoo_Admin_Order_Metabox {
 
 		if ( ! $so_id && ! $invoice_id && ! $payment_id ) {
 			echo '<p class="woo2odoo-none">No sincronizado con Odoo.</p>';
+			$refresh_url = esc_url( add_query_arg( 'woo2odoo_refresh', '1' ) );
+			echo '<a href="' . $refresh_url . '" class="woo2odoo-refresh">&#10227; Refrescar desde Odoo</a>';
 			return;
 		}
 
