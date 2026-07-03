@@ -55,6 +55,10 @@ function woo2odoo_main_instance() {
 }
 add_action( 'plugins_loaded', 'woo2odoo_main_instance' );
 
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+	WP_CLI::add_command( 'woo2odoo sync', array( 'Woo2Odoo\Woo2Odoo_CLI', 'sync' ) );
+}
+
 register_activation_hook( __FILE__, 'woo2odoo_on_activate' );
 register_deactivation_hook( __FILE__, 'woo2odoo_on_deactivate' );
 

@@ -78,8 +78,26 @@ class Woo2Odoo_Order_Manager {
 		$this->client = new Woo2Odoo_Client();
 	}
 
+	private function set_sync_status( int $order_id, string $status, string $error = '', ?\WC_Order $order = null ): void {
+		if ( ! $order ) {
+			$order = wc_get_order( $order_id );
+		}
+		if ( ! $order ) {
+			return;
+		}
+		$order->update_meta_data( '_woo2odoo_sync_status', $status );
+		$order->update_meta_data( '_woo2odoo_sync_date', current_time( 'mysql' ) );
+		if ( $error !== '' ) {
+			$order->update_meta_data( '_woo2odoo_sync_error', mb_substr( $error, 0, 255 ) );
+		} elseif ( 'synced' === $status ) {
+			$order->delete_meta_data( '_woo2odoo_sync_error' );
+		}
+		$order->save();
+	}
+
 	public function order_sync( $order_id ) {
 		if ( !$this->client->authenticate() ) {
+			$this->set_sync_status( (int) $order_id, 'failed', 'Odoo auth failed' );
 			return false;
 		}
 
@@ -90,11 +108,14 @@ class Woo2Odoo_Order_Manager {
 				return false;
 			}
 
+			$this->set_sync_status( (int) $order_id, 'pending', '', $order );
+
 			$odoo_order_state = $this->odoo_states( $this->default_mapping[ $order->get_status() ], 'order_state' );
 			// Get the customer data
 			$customer_data = $this->get_customer_data( $order );
 			if ( !$customer_data ) {
 				$this->client->log_error( 'Error getting customer data', array( 'order_id' => $order_id ) );
+				$this->set_sync_status( (int) $order_id, 'failed', 'Customer data unavailable', $order );
 				return false;
 			}
 			// Search if the order exists in Odoo
@@ -131,6 +152,7 @@ class Woo2Odoo_Order_Manager {
 						'odoo_state'    => $odoo_order->state,
 					)
 				);
+				$this->set_sync_status( (int) $order_id, 'failed', "SO activo en Odoo: ID {$odoo_order->id} (estado: {$odoo_order->state})", $order );
 				return false;
 			}
 			if ( !$odoo_order ) {
@@ -232,9 +254,11 @@ class Woo2Odoo_Order_Manager {
 
 		} catch (Exception $e) {
 			$this->client->log_exception( 'Odoo order_sync failed', $e );
+			$this->set_sync_status( (int) $order_id, 'failed', $e->getMessage() );
 			return false;
 		}
 
+		$this->set_sync_status( (int) $order_id, 'synced', '', $order );
 		return true;
 	}
 
