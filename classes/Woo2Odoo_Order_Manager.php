@@ -150,7 +150,7 @@ class Woo2Odoo_Order_Manager {
 						array(
 							'order_id'     => $order_id,
 							'order_status' => $order->get_status(),
-							'odoo_status'  => $odoo_order['state'],
+							'odoo_status'  => $odoo_order->state,
 						)
 					);
 				}
