@@ -1,7 +1,7 @@
 # Plan: Sincronización de Stock Odoo → WooCommerce
 
 **Fecha:** 2026-06-18  
-**Estado:** Pendiente de implementación
+**Estado:** ✅ IMPLEMENTADO — clase `Woo2Odoo_Stock_Manager` (PR #3/#4, 2026-06-18/29). Cron configurable Odoo→WC vía `free_qty`. Documento archivado como referencia histórica del diseño.
 
 ---
 
