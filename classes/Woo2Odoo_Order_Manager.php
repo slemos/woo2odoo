@@ -133,7 +133,7 @@ class Woo2Odoo_Order_Manager {
 						'cancel',
 					),
 				),
-				array( 'id', 'amount_total', 'state', 'invoice_status' ),
+				array( 'id', 'amount_total', 'state', 'invoice_status', 'invoice_ids' ),
 				null,
 				1,
 				null,
@@ -141,19 +141,50 @@ class Woo2Odoo_Order_Manager {
 			);
 			$is_new_order = false;
 			if ( $odoo_order ) {
+				// SO already exists in Odoo — link WC meta to it instead of blocking.
+				$order->update_meta_data( '_odoo_sale_order_id', $odoo_order->id );
+				$order->save();
+
+				$invoice_ids = isset( $odoo_order->invoice_ids ) ? (array) $odoo_order->invoice_ids : array();
+				if ( ! empty( $invoice_ids ) ) {
+					$inv = $this->client->search_read(
+						'account.move',
+						array( array( 'id', '=', (int) $invoice_ids[0] ) ),
+						array( 'id' ),
+						null, 1, null,
+						array( 'single' => true )
+					);
+					if ( $inv ) {
+						$order->update_meta_data( '_woo2odoo_invoice_id', $inv->id );
+						$order->save();
+
+						$payment = $this->client->search_read(
+							'account.payment',
+							array( array( 'invoice_ids', 'in', array( (int) $inv->id ) ) ),
+							array( 'id' ),
+							null, 1, null,
+							array( 'single' => true )
+						);
+						if ( $payment ) {
+							$order->update_meta_data( '_woo2odoo_payment_id', $payment->id );
+							$order->save();
+						}
+					}
+				}
+
 				$order->add_order_note(
-					"Woo2Odoo: sincronización bloqueada — existe un pedido de venta activo en Odoo (ID {$odoo_order->id}, estado: {$odoo_order->state}). Cancela o anula el pedido en Odoo antes de re-sincronizar."
+					"Woo2Odoo: Pedido vinculado a SO existente en Odoo (ID {$odoo_order->id}, estado: {$odoo_order->state}). No se creó un nuevo pedido."
 				);
-				$this->client->log_warning(
-					'Sync blocked: active SO already exists in Odoo',
+				$this->client->log_info(
+					'Sync: linked WC order to existing active SO in Odoo',
 					array(
 						'order_id'      => $order_id,
 						'odoo_order_id' => $odoo_order->id,
 						'odoo_state'    => $odoo_order->state,
 					)
 				);
-				$this->set_sync_status( (int) $order_id, 'failed', "SO activo en Odoo: ID {$odoo_order->id} (estado: {$odoo_order->state})", $order );
-				return false;
+				$this->set_sync_status( (int) $order_id, 'synced', '', $order );
+				return true;
 			}
 			if ( !$odoo_order ) {
 				// Create the order in Odoo
@@ -1119,13 +1150,18 @@ class Woo2Odoo_Order_Manager {
 			);
 		} elseif ( 'woo-mercado-pago-basic' === $payment_method ) {
 			$payment_ids = $order->get_meta( '_Mercado_Pago_Payment_IDs' );
-			$paid_date = $order->get_meta( '_paid_date' );
 
-			if ( empty( $payment_ids ) || empty( $paid_date ) ) {
+			if ( empty( $payment_ids ) ) {
 				return false;
 			}
 
 			$amount = (float) $order->get_total();
+
+			$paid_date = $order->get_meta( '_paid_date' );
+			if ( empty( $paid_date ) ) {
+				$date_paid = $order->get_date_paid();
+				$paid_date = $date_paid ? $date_paid->format( 'Y-m-d H:i:s' ) : '';
+			}
 
 			$date = $this->parse_mercadopago_date( $paid_date );
 
