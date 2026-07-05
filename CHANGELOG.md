@@ -11,6 +11,17 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-07-05
+
+### Fixed
+- **Stale Redis cache served phantom Sale Orders** (critical). `Woo2Odoo_Client::search_read()` cached every result in Redis for an hour. The `order_sync()` guard used that cached wrapper to check whether a SO already existed, so a since-deleted QA test SO was still returned from cache — the sync linked a phantom SO (`_odoo_sale_order_id` pointing to a non-existent record) instead of creating a real one, and the `state != cancel` filter was silently bypassed because the query never reached Odoo.
+- **DivisionByZeroError on corrupt line items.** An order line with `quantity = 0` (external data corruption, e.g. a 3PL REST `PUT` that zeroed quantities) caused `add_order_line_items()` to fatal on `total / quantity`, aborting mid-sync and leaving an orphan empty SO in Odoo.
+
+### Changed
+- **`search_read()` caching is now opt-in.** Default is no cache; callers pass `'cache' => true` only for immutable/slow-changing lookups (SKU→id maps via `get_odoo_skus`, `res.country`/`res.country.state`). All mutable-state reads (sale.order, account.move/payment, res.partner, stock `free_qty`) are always fresh. Removed the now-unnecessary cache-flush workaround in `Woo2Odoo_Stock_Manager`.
+- **`order_sync()` pre-flight validation.** Orders with any line `quantity <= 0` now fail cleanly (status `failed` + order note) before any Odoo record is created, instead of fataling.
+- `order_sync()` / `refund_sync()` now catch `\Throwable` (not just `\Exception`) so PHP `Error`s mid-sync set status `failed` instead of leaving partial Odoo records.
+
 ## [1.3.1] - 2026-07-04
 
 ### Changed
