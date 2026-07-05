@@ -17,6 +17,7 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
 - **Tab "Estado Odoo"** en la configuración del plugin: tabla de pedidos con su meta de sincronización — Pedido, Monto, Sale Order, Boleta, Pago y Estado — con enlaces directos a Odoo (SO/boleta). Barra de filtros con contadores (con error / pendientes / sin intentar / sincronizados / todos) y paginación. Lee solo meta almacenada (no consulta Odoo al renderizar). Excluye reembolsos del listado.
 - **Sincronización por fila** (botón "Sincronizar", AJAX síncrono, actualiza la fila sin recargar) para reintentos puntuales.
 - **Selección + sincronización en segundo plano**: checkboxes por fila + "seleccionar todos", y botón **"Sincronizar seleccionados"** que **encola cada pedido en Action Scheduler** (`as_enqueue_async_action`, grupo `woo2odoo`) y responde al instante. La cola procesa los pedidos en background (loopback async o cron del host), sin bloquear el navegador ni límites de timeout. Los pedidos encolados pasan a estado `pending` de inmediato; el resultado real (`synced`/`failed` con el error de Odoo) queda reflejado al terminar cada job. Handler de la acción: `woo2odoo_sync_single` → `auto_sync_order()`. Clase nueva `Woo2Odoo_Sync_Status_Tab`.
+- **Aviso global en el admin** cuando hay pedidos con error de sincronización: muestra el conteo y un enlace directo al tab "Estado Odoo" (filtrado a los con error). Descartable por 12 h por usuario (transient). Solo para usuarios con `manage_woocommerce`; no aparece en la propia página del plugin.
 
 ## [1.3.3] - 2026-07-05
 

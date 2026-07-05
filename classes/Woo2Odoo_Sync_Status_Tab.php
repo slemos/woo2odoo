@@ -23,6 +23,82 @@ class Woo2Odoo_Sync_Status_Tab {
 	public static function register(): void {
 		add_action( 'wp_ajax_woo2odoo_sync_order', array( __CLASS__, 'ajax_sync_order' ) );
 		add_action( 'wp_ajax_woo2odoo_enqueue_sync', array( __CLASS__, 'ajax_enqueue_sync' ) );
+		add_action( 'admin_notices', array( __CLASS__, 'maybe_show_notice' ) );
+		add_action( 'wp_ajax_woo2odoo_dismiss_notice', array( __CLASS__, 'ajax_dismiss_notice' ) );
+	}
+
+	// ── Global admin notice (orders with sync errors) ─────────────────────────
+
+	private static function notice_dismiss_key(): string {
+		return 'woo2odoo_notice_dismissed_' . get_current_user_id();
+	}
+
+	public static function maybe_show_notice(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		// Don't nag on the plugin's own settings page (the tab is right there).
+		if ( isset( $_GET['page'] ) && 'woo2odoo-plugin' === $_GET['page'] ) { // phpcs:ignore WordPress.Security.NonceVerification
+			return;
+		}
+		if ( get_transient( self::notice_dismiss_key() ) ) {
+			return;
+		}
+		$count = self::count_for( 'failed' );
+		if ( $count < 1 ) {
+			return;
+		}
+
+		$url = wp_nonce_url(
+			add_query_arg(
+				array( 'sync_filter' => 'failed' ),
+				admin_url( 'options-general.php?page=woo2odoo-plugin&tab=sync-status' )
+			),
+			'woo2odoo_plugin_switch_settings_tab',
+			'woo2odoo_plugin_switch_settings_tab'
+		);
+		$message = sprintf(
+			/* translators: %d: number of orders */
+			_n(
+				'%d pedido no se pudo sincronizar con Odoo.',
+				'%d pedidos no se pudieron sincronizar con Odoo.',
+				$count,
+				'woo2odoo-plugin'
+			),
+			$count
+		);
+
+		printf(
+			'<div class="notice notice-warning is-dismissible woo2odoo-sync-notice" data-nonce="%s">
+				<p><strong>Woo2Odoo:</strong> %s <a href="%s">%s &rarr;</a></p>
+			</div>
+			<script>
+			( function () {
+				var notice = document.querySelector( ".woo2odoo-sync-notice" );
+				if ( ! notice ) { return; }
+				notice.addEventListener( "click", function ( e ) {
+					if ( ! e.target.classList.contains( "notice-dismiss" ) ) { return; }
+					var body = new URLSearchParams();
+					body.append( "action", "woo2odoo_dismiss_notice" );
+					body.append( "nonce", notice.getAttribute( "data-nonce" ) );
+					fetch( window.ajaxurl, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body.toString() } );
+				} );
+			} )();
+			</script>',
+			esc_attr( wp_create_nonce( 'woo2odoo_dismiss_notice' ) ),
+			esc_html( $message ),
+			esc_url( $url ),
+			esc_html__( 'Ver en Estado Odoo', 'woo2odoo-plugin' )
+		);
+	}
+
+	public static function ajax_dismiss_notice(): void {
+		check_ajax_referer( 'woo2odoo_dismiss_notice', 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( array(), 403 );
+		}
+		set_transient( self::notice_dismiss_key(), 1, 12 * HOUR_IN_SECONDS );
+		wp_send_json_success();
 	}
 
 	// ── Query helpers ─────────────────────────────────────────────────────────
