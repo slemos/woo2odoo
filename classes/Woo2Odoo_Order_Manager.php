@@ -316,6 +316,82 @@ class Woo2Odoo_Order_Manager {
 	}
 
 	/**
+	 * Backfill: link an OLD WC order to its already-existing Odoo Sale Order + Invoice
+	 * WITHOUT creating anything in Odoo and WITHOUT a payment.
+	 *
+	 * For legacy orders that were reconciled manually (or by the old wc2odoo plugin):
+	 * finds the sale.order by origin, records `_odoo_sale_order_id` and
+	 * `_woo2odoo_invoice_id`, and marks the WC order as `synced`. No account.payment
+	 * is created — reconciliation was done by hand. Idempotent and read-only on Odoo.
+	 *
+	 * @param int  $order_id WooCommerce order ID.
+	 * @param bool $dry_run  When true, only reports what would be linked (no writes).
+	 * @return array{result:string, so?:int, so_name?:string, invoice?:int, msg?:string}
+	 */
+	public function backfill_from_odoo( $order_id, $dry_run = false ) {
+		if ( ! $this->client->authenticate() ) {
+			return array( 'result' => 'error', 'msg' => 'Odoo auth failed' );
+		}
+
+		$order = wc_get_order( $order_id );
+		if ( ! $order instanceof \WC_Order ) {
+			return array( 'result' => 'error', 'msg' => 'Pedido WC no encontrado' );
+		}
+
+		// Find the existing, non-cancelled Sale Order by origin.
+		$so = $this->client->search_read(
+			'sale.order',
+			array(
+				array( 'origin', '=', (string) $order_id ),
+				array( 'state', '!=', 'cancel' ),
+			),
+			array( 'id', 'name', 'state', 'invoice_ids' ),
+			null,
+			1,
+			null,
+			array( 'single' => true )
+		);
+
+		if ( ! $so ) {
+			return array( 'result' => 'skipped', 'msg' => 'sin Sale Order en Odoo' );
+		}
+
+		// Pick the invoice to link. Prefer the invoice the legacy wc2odoo meta pointed to
+		// (that is the one that was reconciled), as long as it belongs to this SO;
+		// otherwise fall back to the SO's first linked invoice.
+		$invoice_ids = isset( $so->invoice_ids ) ? array_map( 'intval', (array) $so->invoice_ids ) : array();
+		$legacy_inv  = (int) $order->get_meta( '_odoo_invoice_id' );
+		$invoice_id  = 0;
+		if ( $legacy_inv && in_array( $legacy_inv, $invoice_ids, true ) ) {
+			$invoice_id = $legacy_inv;
+		} elseif ( ! empty( $invoice_ids ) ) {
+			$invoice_id = $invoice_ids[0];
+		}
+
+		if ( $dry_run ) {
+			return array( 'result' => 'would-link', 'so' => (int) $so->id, 'so_name' => (string) $so->name, 'invoice' => (int) $invoice_id );
+		}
+
+		$order->update_meta_data( '_odoo_sale_order_id', $so->id );
+		if ( $invoice_id ) {
+			$order->update_meta_data( '_woo2odoo_invoice_id', $invoice_id );
+		}
+
+		// Mark synced, NO payment (manual reconciliation).
+		$order->update_meta_data( '_woo2odoo_sync_status', 'synced' );
+		$order->update_meta_data( '_woo2odoo_sync_date', current_time( 'mysql' ) );
+		$order->delete_meta_data( '_woo2odoo_sync_error' );
+		$order->add_order_note(
+			"Woo2Odoo backfill: vinculado a Sale Order {$so->name} (ID {$so->id})"
+			. ( $invoice_id ? " y boleta ID {$invoice_id}" : '' )
+			. " existentes en Odoo. Marcado como sincronizado SIN crear pago (conciliación manual)."
+		);
+		$order->save();
+
+		return array( 'result' => 'linked', 'so' => (int) $so->id, 'so_name' => (string) $so->name, 'invoice' => (int) $invoice_id );
+	}
+
+	/**
 	 * Create a Odoo Invoice.
 	 *
 	 * @param \WC_Order $order order from WooCommerce.

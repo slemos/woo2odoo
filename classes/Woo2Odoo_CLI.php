@@ -137,6 +137,131 @@ class Woo2Odoo_CLI {
 		\WP_CLI::success( sprintf( '%d sincronizados, %d fallidos.', $synced, $failed ) );
 	}
 
+	/**
+	 * Vincula pedidos VIEJOS con su Sale Order + Boleta ya existentes en Odoo,
+	 * SIN crear nada y SIN generar pago (para pedidos conciliados manualmente).
+	 *
+	 * Solo procesa pedidos que aún NO tienen `_odoo_sale_order_id` (idempotente).
+	 * Los que no tengan una Sale Order en Odoo (búsqueda por origin) se omiten.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [<order_id>]
+	 * : ID de un pedido específico a vincular.
+	 *
+	 * [--before=<date>]
+	 * : Solo pedidos creados antes de esta fecha (YYYY-MM-DD). Recomendado para acotar a pedidos viejos.
+	 *
+	 * [--wc-status=<status>]
+	 * : Estados WooCommerce a incluir (separados por coma).
+	 * ---
+	 * default: completed,processing
+	 * ---
+	 *
+	 * [--limit=<N>]
+	 * : Máximo de pedidos a procesar.
+	 * ---
+	 * default: 200
+	 * ---
+	 *
+	 * [--dry-run]
+	 * : Solo muestra qué se vincularía, sin escribir nada.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Previsualizar pedidos anteriores al cutover
+	 *     wp woo2odoo backfill --before=2026-06-20 --dry-run
+	 *
+	 *     # Vincular (real) en tandas de 500
+	 *     wp woo2odoo backfill --before=2026-06-20 --limit=500
+	 *
+	 *     # Un pedido específico
+	 *     wp woo2odoo backfill 1427
+	 *
+	 * @when after_wp_load
+	 */
+	public function backfill( array $args, array $assoc_args ): void {
+		$order_id  = isset( $args[0] ) ? (int) $args[0] : null;
+		$dry_run   = (bool) \WP_CLI\Utils\get_flag_value( $assoc_args, 'dry-run', false );
+		$limit     = (int) \WP_CLI\Utils\get_flag_value( $assoc_args, 'limit', 200 );
+		$before    = \WP_CLI\Utils\get_flag_value( $assoc_args, 'before', '' );
+		$wc_status = \WP_CLI\Utils\get_flag_value( $assoc_args, 'wc-status', 'completed,processing' );
+
+		if ( $order_id ) {
+			$order  = wc_get_order( $order_id );
+			$orders = ( $order instanceof \WC_Order ) ? array( $order ) : array();
+		} else {
+			$wc_statuses = array_map(
+				fn( $s ) => str_starts_with( $s, 'wc-' ) ? $s : 'wc-' . $s,
+				array_filter( array_map( 'trim', explode( ',', $wc_status ) ) )
+			);
+			$query = array(
+				'type'       => 'shop_order',
+				'limit'      => $limit,
+				'status'     => $wc_statuses,
+				'orderby'    => 'date',
+				'order'      => 'ASC',
+				'meta_query' => array( array( 'key' => '_odoo_sale_order_id', 'compare' => 'NOT EXISTS' ) ),
+			);
+			if ( $before ) {
+				$query['date_created'] = '<' . $before;
+			}
+			$orders = wc_get_orders( $query );
+		}
+
+		if ( empty( $orders ) ) {
+			\WP_CLI::success( 'No hay pedidos sin vincular para procesar.' );
+			return;
+		}
+
+		\WP_CLI::log( sprintf(
+			'%d pedido(s) a procesar%s%s.',
+			count( $orders ),
+			$before ? " (antes de $before)" : '',
+			$dry_run ? ' — DRY RUN, sin escribir' : ''
+		) );
+
+		$manager = new Woo2Odoo_Order_Manager();
+		$linked  = 0;
+		$skipped = 0;
+		$errors  = 0;
+		$rows    = array();
+
+		foreach ( $orders as $order ) {
+			$oid = $order->get_id();
+			$res = $manager->backfill_from_odoo( $oid, $dry_run );
+
+			switch ( $res['result'] ) {
+				case 'linked':
+				case 'would-link':
+					$linked++;
+					break;
+				case 'skipped':
+					$skipped++;
+					break;
+				default:
+					$errors++;
+			}
+
+			$rows[] = array(
+				'ID'      => $oid,
+				'Result'  => $res['result'],
+				'SO'      => $res['so_name'] ?? ( isset( $res['so'] ) ? '#' . $res['so'] : '—' ),
+				'Boleta'  => ! empty( $res['invoice'] ) ? $res['invoice'] : '—',
+				'Detalle' => $res['msg'] ?? '',
+			);
+		}
+
+		\WP_CLI\Utils\format_items( 'table', $rows, array( 'ID', 'Result', 'SO', 'Boleta', 'Detalle' ) );
+		\WP_CLI::success( sprintf(
+			'%s: %d vinculados, %d omitidos (sin SO), %d errores.',
+			$dry_run ? 'DRY RUN' : 'Backfill',
+			$linked,
+			$skipped,
+			$errors
+		) );
+	}
+
 	private function sync_single( int $order_id, bool $dry_run ): void {
 		$order = wc_get_order( $order_id );
 
