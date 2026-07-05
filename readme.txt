@@ -88,7 +88,8 @@ Run `wp cron event list | grep odoo` to inspect the scheduled cron event. You ca
 See CHANGELOG.md for detailed release notes.
 
 = 1.4.0 =
-* New: "Estado Odoo" settings tab — order list with Sale Order / Invoice / Payment meta, sync status, per-row and bulk "Sync" buttons (AJAX), filters and pagination
+* New: "Estado Odoo" settings tab — order list with Sale Order / Invoice / Payment meta and sync status, filters and pagination
+* New: per-row "Sync" button (AJAX) + row selection with "Sync selected" that enqueues background jobs via Action Scheduler
 
 = 1.3.3 =
 * Fix: format_rut() corrupted RUTs ending in K (~9% of Chilean RUTs)
