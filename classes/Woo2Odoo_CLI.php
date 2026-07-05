@@ -164,6 +164,11 @@ class Woo2Odoo_CLI {
 	 * default: 200
 	 * ---
 	 *
+	 * [--missing-invoice]
+	 * : En vez de pedidos sin Sale Order, procesa los que YA tienen Sale Order pero les
+	 *   falta la boleta (`_woo2odoo_invoice_id`). Útil para pedidos que una versión previa
+	 *   sincronizó a medias (registró el SO pero no la boleta).
+	 *
 	 * [--dry-run]
 	 * : Solo muestra qué se vincularía, sin escribir nada.
 	 *
@@ -175,17 +180,22 @@ class Woo2Odoo_CLI {
 	 *     # Vincular (real) en tandas de 500
 	 *     wp woo2odoo backfill --before=2026-06-20 --limit=500
 	 *
+	 *     # Completar la boleta faltante en pedidos con SO ya registrado
+	 *     wp woo2odoo backfill --missing-invoice --dry-run
+	 *     wp woo2odoo backfill --missing-invoice
+	 *
 	 *     # Un pedido específico
 	 *     wp woo2odoo backfill 1427
 	 *
 	 * @when after_wp_load
 	 */
 	public function backfill( array $args, array $assoc_args ): void {
-		$order_id  = isset( $args[0] ) ? (int) $args[0] : null;
-		$dry_run   = (bool) \WP_CLI\Utils\get_flag_value( $assoc_args, 'dry-run', false );
-		$limit     = (int) \WP_CLI\Utils\get_flag_value( $assoc_args, 'limit', 200 );
-		$before    = \WP_CLI\Utils\get_flag_value( $assoc_args, 'before', '' );
-		$wc_status = \WP_CLI\Utils\get_flag_value( $assoc_args, 'wc-status', 'completed,processing' );
+		$order_id        = isset( $args[0] ) ? (int) $args[0] : null;
+		$dry_run         = (bool) \WP_CLI\Utils\get_flag_value( $assoc_args, 'dry-run', false );
+		$limit           = (int) \WP_CLI\Utils\get_flag_value( $assoc_args, 'limit', 200 );
+		$before          = \WP_CLI\Utils\get_flag_value( $assoc_args, 'before', '' );
+		$wc_status       = \WP_CLI\Utils\get_flag_value( $assoc_args, 'wc-status', 'completed,processing' );
+		$missing_invoice = (bool) \WP_CLI\Utils\get_flag_value( $assoc_args, 'missing-invoice', false );
 
 		if ( $order_id ) {
 			$order  = wc_get_order( $order_id );
@@ -195,13 +205,21 @@ class Woo2Odoo_CLI {
 				fn( $s ) => str_starts_with( $s, 'wc-' ) ? $s : 'wc-' . $s,
 				array_filter( array_map( 'trim', explode( ',', $wc_status ) ) )
 			);
+			$meta_query = $missing_invoice
+				? array(
+					'relation' => 'AND',
+					array( 'key' => '_odoo_sale_order_id', 'compare' => 'EXISTS' ),
+					array( 'key' => '_woo2odoo_invoice_id', 'compare' => 'NOT EXISTS' ),
+				)
+				: array( array( 'key' => '_odoo_sale_order_id', 'compare' => 'NOT EXISTS' ) );
+
 			$query = array(
 				'type'       => 'shop_order',
 				'limit'      => $limit,
 				'status'     => $wc_statuses,
 				'orderby'    => 'date',
 				'order'      => 'ASC',
-				'meta_query' => array( array( 'key' => '_odoo_sale_order_id', 'compare' => 'NOT EXISTS' ) ),
+				'meta_query' => $meta_query,
 			);
 			if ( $before ) {
 				$query['date_created'] = '<' . $before;
