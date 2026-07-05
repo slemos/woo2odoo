@@ -36,6 +36,12 @@ class Woo2Odoo_Client {
 	private $client;
 
 	/**
+	 * @var string Last Odoo error message captured by log_exception(). Lets callers
+	 *             surface the real cause (e.g. "RUT inválido") instead of a generic message.
+	 */
+	private $last_error = '';
+
+	/**
 	 * Constructor
 	 */
 	public function __construct() {
@@ -204,6 +210,7 @@ class Woo2Odoo_Client {
 	 * @param \Exception $exception The exception to log
 	 */
 	public function log_exception( $message, $exception ) {
+		$this->last_error = $exception->getMessage();
 		wc_get_logger()->error(
 			$message,
 			array(
@@ -212,6 +219,15 @@ class Woo2Odoo_Client {
 				'trace'   => $exception->getTraceAsString(),
 			)
 		);
+	}
+
+	/**
+	 * Return the last Odoo error message captured (empty string if none).
+	 *
+	 * @return string
+	 */
+	public function get_last_error() {
+		return $this->last_error;
 	}
 
 	/**
