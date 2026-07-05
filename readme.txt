@@ -4,7 +4,7 @@ Tags: odoo, woocommerce, erp, integration, chile
 Requires at least: 6.5
 Tested up to: 6.9
 Requires PHP: 8.0
-Stable tag: 1.3.3
+Stable tag: 1.4.0
 License: GPLv3
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -26,6 +26,7 @@ Woo2Odoo syncs WooCommerce orders to Odoo automatically. When an order reaches "
 * **Guest checkout support** — builds the Odoo partner from billing address when no WP user exists
 * **Sync guard** — detects existing active Sale Orders; links them to the WC order instead of creating duplicates
 * **Live admin metabox** — shows real-time Odoo status (SO name, invoice state, payment state) with direct links to Odoo
+* **"Estado Odoo" admin tab** — order list with Sale Order / Invoice / Payment meta and per-row + bulk sync buttons
 * **Stock sync** — imports stock quantities from Odoo `free_qty` on a configurable cron schedule
 * **Refund sync** — creates credit notes in Odoo when a WC refund is registered
 * **WP-CLI command** — `wp woo2odoo sync` for batch re-sync with filtering and dry-run support
@@ -85,6 +86,9 @@ Run `wp cron event list | grep odoo` to inspect the scheduled cron event. You ca
 == Changelog ==
 
 See CHANGELOG.md for detailed release notes.
+
+= 1.4.0 =
+* New: "Estado Odoo" settings tab — order list with Sale Order / Invoice / Payment meta, sync status, per-row and bulk "Sync" buttons (AJAX), filters and pagination
 
 = 1.3.3 =
 * Fix: format_rut() corrupted RUTs ending in K (~9% of Chilean RUTs)
