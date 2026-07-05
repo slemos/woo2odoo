@@ -4,7 +4,7 @@ Tags: odoo, woocommerce, erp, integration, chile
 Requires at least: 6.5
 Tested up to: 6.9
 Requires PHP: 8.0
-Stable tag: 1.3.1
+Stable tag: 1.3.2
 License: GPLv3
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -85,6 +85,10 @@ Run `wp cron event list | grep odoo` to inspect the scheduled cron event. You ca
 == Changelog ==
 
 See CHANGELOG.md for detailed release notes.
+
+= 1.3.2 =
+* Fix: stale Redis cache served phantom Sale Orders (search_read caching is now opt-in, default fresh)
+* Fix: DivisionByZeroError on line items with quantity 0; pre-flight validation fails such orders cleanly; catch \Throwable
 
 = 1.3.1 =
 * Guard links existing Odoo SO/invoice/payment to WC meta instead of blocking with failed status

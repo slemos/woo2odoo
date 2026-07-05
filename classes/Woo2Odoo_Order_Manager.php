@@ -110,6 +110,21 @@ class Woo2Odoo_Order_Manager {
 
 			$this->set_sync_status( (int) $order_id, 'pending', '', $order );
 
+			// Pre-flight: reject orders with invalid line quantities BEFORE touching Odoo.
+			// A line with qty <= 0 (data corruption, e.g. an external REST PUT that zeroed
+			// quantities) would otherwise divide-by-zero in add_order_line_items and leave
+			// an orphan empty sale.order in Odoo. Fail cleanly so the order can be fixed.
+			foreach ( $order->get_items() as $item ) {
+				if ( (float) $item->get_quantity() <= 0 ) {
+					$sku = $item->get_product() ? $item->get_product()->get_sku() : $item->get_name();
+					$msg = "Línea con cantidad 0 o inválida ({$sku}) — datos del pedido corruptos. Corrige las cantidades antes de sincronizar.";
+					$order->add_order_note( "Woo2Odoo: sincronización abortada — {$msg}" );
+					$this->client->log_warning( 'Sync aborted: order line with qty <= 0', array( 'order_id' => $order_id, 'sku' => $sku ) );
+					$this->set_sync_status( (int) $order_id, 'failed', $msg, $order );
+					return false;
+				}
+			}
+
 			$odoo_order_state = $this->odoo_states( $this->default_mapping[ $order->get_status() ], 'order_state' );
 			// Get the customer data
 			$customer_data = $this->get_customer_data( $order );
@@ -283,7 +298,10 @@ class Woo2Odoo_Order_Manager {
 				}
 			}
 
-		} catch (Exception $e) {
+		} catch (\Throwable $e) {
+			// \Throwable (not just Exception) so PHP Errors mid-sync (e.g. a
+			// DivisionByZeroError on bad line data) set status=failed instead of
+			// fataling and leaving partially-created Odoo records behind.
 			$this->client->log_exception( 'Odoo order_sync failed', $e );
 			$this->set_sync_status( (int) $order_id, 'failed', $e->getMessage() );
 			return false;
@@ -895,14 +913,14 @@ class Woo2Odoo_Order_Manager {
 		}
 		$state_codes = array();
 
-		$country = $this->client->search_read( 'res.country', array( array( 'code', '=', $country_code ) ), array( 'id' ), null, 1, null, array( 'single' => true ) );
+		$country = $this->client->search_read( 'res.country', array( array( 'code', '=', $country_code ) ), array( 'id' ), null, 1, null, array( 'single' => true, 'cache' => true ) );
 		if ( $country ) {
 			$state_codes['country'] = $country->id;
 
 			if ( 'Región Metropolitana de Santiago' === $state_code ) {
 				$state_code = 'Metropolitana';
 			}
-			$states = $this->client->search_read( 'res.country.state', array( array( 'name', 'like', "%{$state_code}%" ), array( 'country_id', '=', $country->id ) ), array( 'id' ), null, 1, null, array( 'single' => true ) );
+			$states = $this->client->search_read( 'res.country.state', array( array( 'name', 'like', "%{$state_code}%" ), array( 'country_id', '=', $country->id ) ), array( 'id' ), null, 1, null, array( 'single' => true, 'cache' => true ) );
 			if ( $states ) {
 				$state_codes['state'] = $states->id;
 			} else {
@@ -1011,7 +1029,7 @@ class Woo2Odoo_Order_Manager {
 			$skus[] = $item->get_product()->get_sku();
 		}
 		// Query Odoo for the products
-		$products = $this->client->search_read( 'product.product', array( array( 'default_code', 'in', $skus ) ), array( 'default_code', 'id' ), null, 1000, null, array( 'indexBy' => 'default_code' ) );
+		$products = $this->client->search_read( 'product.product', array( array( 'default_code', 'in', $skus ) ), array( 'default_code', 'id' ), null, 1000, null, array( 'indexBy' => 'default_code', 'cache' => true ) );
 		return $products;
 	}
 
@@ -1429,7 +1447,7 @@ class Woo2Odoo_Order_Manager {
 					array( array( 'default_code', 'in', $skus ) ),
 					array( 'id', 'default_code' ),
 					null, 1000, null,
-					array( 'indexBy' => 'default_code' )
+					array( 'indexBy' => 'default_code', 'cache' => true )
 				) ?: array();
 			}
 
@@ -1479,7 +1497,7 @@ class Woo2Odoo_Order_Manager {
 
 			return $credit_note_id;
 
-		} catch ( Exception $e ) {
+		} catch ( \Throwable $e ) {
 			$this->client->log_exception( 'refund_sync failed', $e );
 			return false;
 		}
