@@ -90,6 +90,7 @@ See CHANGELOG.md for detailed release notes.
 = 1.4.0 =
 * New: "Estado Odoo" settings tab — order list with Sale Order / Invoice / Payment meta and sync status, filters and pagination
 * New: per-row "Sync" button (AJAX) + row selection with "Sync selected" that enqueues background jobs via Action Scheduler
+* New: global admin notice when orders fail to sync, with a link to the "Estado Odoo" tab (dismissible 12h)
 
 = 1.3.3 =
 * Fix: format_rut() corrupted RUTs ending in K (~9% of Chilean RUTs)
