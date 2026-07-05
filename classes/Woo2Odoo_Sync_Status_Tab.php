@@ -16,14 +16,13 @@ namespace Woo2Odoo;
 
 class Woo2Odoo_Sync_Status_Tab {
 
-	const PER_PAGE   = 30;   // rows per page in the table
-	const BULK_LIMIT = 15;   // max orders processed per bulk click (avoids timeouts)
+	const PER_PAGE = 30;   // rows per page in the table
 
 	// ── Registration ──────────────────────────────────────────────────────────
 
 	public static function register(): void {
 		add_action( 'wp_ajax_woo2odoo_sync_order', array( __CLASS__, 'ajax_sync_order' ) );
-		add_action( 'wp_ajax_woo2odoo_sync_all', array( __CLASS__, 'ajax_sync_all' ) );
+		add_action( 'wp_ajax_woo2odoo_enqueue_sync', array( __CLASS__, 'ajax_enqueue_sync' ) );
 	}
 
 	// ── Query helpers ─────────────────────────────────────────────────────────
@@ -67,23 +66,6 @@ class Woo2Odoo_Sync_Status_Tab {
 		return (int) $res->total;
 	}
 
-	/** IDs to process in bulk for a filter (capped). */
-	private static function ids_for( string $filter, int $limit ): array {
-		$args = array(
-			'type'    => 'shop_order',
-			'limit'   => $limit,
-			'status'  => self::wc_statuses(),
-			'orderby' => 'date',
-			'order'   => 'DESC',
-			'return'  => 'ids',
-		);
-		$mq = self::meta_query_for( $filter );
-		if ( $mq ) {
-			$args['meta_query'] = $mq;
-		}
-		return wc_get_orders( $args );
-	}
-
 	private static function odoo_url(): string {
 		$settings = get_option( 'Woo2Odoo-plugin-connection', array() );
 		return isset( $settings['odoo_url'] ) ? rtrim( $settings['odoo_url'], '/' ) : '';
@@ -115,35 +97,45 @@ class Woo2Odoo_Sync_Status_Tab {
 		) );
 	}
 
-	// ── AJAX: bulk (one capped batch per call) ────────────────────────────────
+	// ── AJAX: enqueue selected orders to Action Scheduler (background) ─────────
 
-	public static function ajax_sync_all(): void {
+	public static function ajax_enqueue_sync(): void {
 		check_ajax_referer( 'woo2odoo_sync', 'nonce' );
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_send_json_error( array( 'msg' => 'forbidden' ), 403 );
 		}
-		$filter = isset( $_POST['filter'] ) ? sanitize_key( $_POST['filter'] ) : 'failed';
-		if ( ! in_array( $filter, array( 'failed', 'pending', 'never' ), true ) ) {
-			$filter = 'failed';
+
+		$ids = isset( $_POST['order_ids'] ) ? (array) wp_unslash( $_POST['order_ids'] ) : array();
+		$ids = array_values( array_unique( array_filter( array_map( 'absint', $ids ) ) ) );
+
+		if ( empty( $ids ) ) {
+			wp_send_json_error( array( 'msg' => 'No hay pedidos seleccionados.' ) );
+		}
+		// Guard against runaway payloads.
+		$ids = array_slice( $ids, 0, 500 );
+
+		if ( ! function_exists( 'as_enqueue_async_action' ) ) {
+			wp_send_json_error( array( 'msg' => 'Action Scheduler no está disponible (WooCommerce).' ) );
 		}
 
-		$total = self::count_for( $filter );
-		$ids   = self::ids_for( $filter, self::BULK_LIMIT );
-
-		$manager = new Woo2Odoo_Order_Manager();
-		$synced  = 0;
-		$failed  = 0;
+		$queued = 0;
 		foreach ( $ids as $id ) {
-			$manager->order_sync( $id ) ? $synced++ : $failed++;
+			$order = wc_get_order( $id );
+			if ( ! $order instanceof \WC_Order ) {
+				continue;
+			}
+			// Reflect "en cola" immediately so the row updates without waiting for the job.
+			$order->update_meta_data( '_woo2odoo_sync_status', 'pending' );
+			$order->delete_meta_data( '_woo2odoo_sync_error' );
+			$order->save();
+
+			// Async background job. Identical pending actions are de-duplicated by AS,
+			// so double-clicking will not enqueue the same order twice.
+			as_enqueue_async_action( 'woo2odoo_sync_single', array( $id ), 'woo2odoo' );
+			$queued++;
 		}
 
-		wp_send_json_success( array(
-			'processed' => count( $ids ),
-			'synced'    => $synced,
-			'failed'    => $failed,
-			'total'     => $total,
-			'remaining' => max( 0, $total - count( $ids ) ),
-		) );
+		wp_send_json_success( array( 'queued' => $queued ) );
 	}
 
 	// ── Tab renderer ──────────────────────────────────────────────────────────
@@ -179,8 +171,6 @@ class Woo2Odoo_Sync_Status_Tab {
 			'woo2odoo_plugin_switch_settings_tab',
 			'woo2odoo_plugin_switch_settings_tab'
 		);
-		$bulk_enabled = in_array( $filter, array( 'failed', 'pending', 'never' ), true );
-
 		self::print_styles();
 		?>
 		<div id="woo2odoo-sync-tab" data-nonce="<?php echo esc_attr( $nonce ); ?>">
@@ -195,16 +185,18 @@ class Woo2Odoo_Sync_Status_Tab {
 					</a>
 				<?php endforeach; ?>
 
-				<?php if ( $bulk_enabled ) : ?>
-					<button type="button" class="button button-primary woo2odoo-bulk" data-filter="<?php echo esc_attr( $filter ); ?>">
-						<?php printf( esc_html__( 'Sincronizar todos (%d)', 'woo2odoo-plugin' ), self::count_for( $filter ) ); ?>
-					</button>
-				<?php endif; ?>
+				<button type="button" class="button button-primary woo2odoo-sync-selected" disabled>
+					<?php esc_html_e( 'Sincronizar seleccionados', 'woo2odoo-plugin' ); ?> (<span class="sel-count">0</span>)
+				</button>
 			</div>
+			<p class="description woo2odoo-bg-note">
+				<?php esc_html_e( 'Los seleccionados se encolan y se sincronizan en segundo plano (Action Scheduler). Actualizá la página para ver el avance.', 'woo2odoo-plugin' ); ?>
+			</p>
 
 			<table id="woo2odoo-sync-table" class="widefat striped">
 				<thead>
 					<tr>
+						<td class="check-column"><input type="checkbox" class="woo2odoo-check-all" title="<?php esc_attr_e( 'Seleccionar todos', 'woo2odoo-plugin' ); ?>"></td>
 						<th><?php esc_html_e( 'Pedido', 'woo2odoo-plugin' ); ?></th>
 						<th><?php esc_html_e( 'Monto', 'woo2odoo-plugin' ); ?></th>
 						<th><?php esc_html_e( 'Sale Order', 'woo2odoo-plugin' ); ?></th>
@@ -216,7 +208,7 @@ class Woo2Odoo_Sync_Status_Tab {
 				</thead>
 				<tbody>
 					<?php if ( empty( $orders ) ) : ?>
-						<tr><td colspan="7" class="woo2odoo-empty"><?php esc_html_e( 'No hay pedidos en este filtro.', 'woo2odoo-plugin' ); ?></td></tr>
+						<tr><td colspan="8" class="woo2odoo-empty"><?php esc_html_e( 'No hay pedidos en este filtro.', 'woo2odoo-plugin' ); ?></td></tr>
 					<?php else : ?>
 						<?php foreach ( $orders as $order ) : ?>
 							<?php self::render_row( $order, $odoo_url ); ?>
@@ -268,6 +260,9 @@ class Woo2Odoo_Sync_Status_Tab {
 		$pay_cell = $payment ? esc_html( $payment ) : '—';
 		?>
 		<tr id="woo2odoo-row-<?php echo (int) $id; ?>" data-order-id="<?php echo (int) $id; ?>">
+			<th scope="row" class="check-column">
+				<input type="checkbox" class="woo2odoo-check" value="<?php echo (int) $id; ?>">
+			</th>
 			<td>
 				<a href="<?php echo esc_url( $edit_url ); ?>"><strong>#<?php echo (int) $id; ?></strong></a>
 				<?php if ( $customer ) : ?><div class="muted"><?php echo esc_html( $customer ); ?></div><?php endif; ?>
@@ -321,7 +316,10 @@ class Woo2Odoo_Sync_Status_Tab {
 			#woo2odoo-sync-tab .chip { text-decoration:none; padding:4px 12px; border:1px solid #c3c4c7; border-radius:14px; font-size:13px; color:#2c3338; background:#fff; }
 			#woo2odoo-sync-tab .chip.active { background:#2271b1; color:#fff; border-color:#2271b1; }
 			#woo2odoo-sync-tab .chip .n { font-weight:700; margin-left:2px; }
-			#woo2odoo-sync-tab .woo2odoo-bulk { margin-left:auto; }
+			#woo2odoo-sync-tab .woo2odoo-sync-selected { margin-left:auto; }
+			#woo2odoo-sync-tab .woo2odoo-bg-note { color:#787c82; margin:0 0 10px; }
+			#woo2odoo-sync-table .check-column { width:2.2em; text-align:center; padding-left:8px; }
+			#woo2odoo-sync-table td.check-column { vertical-align:middle; }
 			#woo2odoo-sync-table td, #woo2odoo-sync-table th { vertical-align:middle; }
 			#woo2odoo-sync-tab .muted { color:#787c82; font-size:12px; }
 			#woo2odoo-sync-tab .woo2odoo-empty { text-align:center; color:#787c82; padding:24px; }
@@ -405,34 +403,76 @@ class Woo2Odoo_Sync_Status_Tab {
 				} );
 			} );
 
-			// Bulk sync (one capped batch; reloads to refresh counts/table).
-			var bulk = wrap.querySelector( '.woo2odoo-bulk' );
-			if ( bulk ) {
-				bulk.addEventListener( 'click', function () {
-					var filter = bulk.getAttribute( 'data-filter' );
-					var prog = document.getElementById( 'woo2odoo-bulk-progress' );
-					bulk.disabled = true;
-					prog.style.display = 'block';
-					prog.textContent = 'Sincronizando lote…';
+			// ── Selection + background enqueue ──
+			var selBtn   = wrap.querySelector( '.woo2odoo-sync-selected' );
+			var selCount = wrap.querySelector( '.sel-count' );
+			var checkAll = wrap.querySelector( '.woo2odoo-check-all' );
 
-					post( { action: 'woo2odoo_sync_all', filter: filter } ).then( function ( res ) {
+			function rowChecks() {
+				return Array.prototype.slice.call( wrap.querySelectorAll( '.woo2odoo-check' ) );
+			}
+			function selectedIds() {
+				return rowChecks().filter( function ( c ) { return c.checked; } ).map( function ( c ) { return c.value; } );
+			}
+			function refreshSelection() {
+				var ids = selectedIds();
+				selCount.textContent = ids.length;
+				selBtn.disabled = ids.length === 0;
+				if ( checkAll ) {
+					var all = rowChecks();
+					checkAll.checked = all.length > 0 && ids.length === all.length;
+					checkAll.indeterminate = ids.length > 0 && ids.length < all.length;
+				}
+			}
+
+			if ( checkAll ) {
+				checkAll.addEventListener( 'change', function () {
+					rowChecks().forEach( function ( c ) { c.checked = checkAll.checked; } );
+					refreshSelection();
+				} );
+			}
+			wrap.addEventListener( 'change', function ( e ) {
+				if ( e.target.classList.contains( 'woo2odoo-check' ) ) { refreshSelection(); }
+			} );
+
+			if ( selBtn ) {
+				selBtn.addEventListener( 'click', function () {
+					var ids = selectedIds();
+					if ( ! ids.length ) { return; }
+					var prog = document.getElementById( 'woo2odoo-bulk-progress' );
+					selBtn.disabled = true;
+					prog.style.display = 'block';
+					prog.textContent = 'Encolando ' + ids.length + ' pedido(s)…';
+
+					var body = new URLSearchParams();
+					body.append( 'action', 'woo2odoo_enqueue_sync' );
+					body.append( 'nonce', nonce );
+					ids.forEach( function ( id ) { body.append( 'order_ids[]', id ); } );
+
+					fetch( ajaxurl, {
+						method: 'POST',
+						credentials: 'same-origin',
+						headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+						body: body.toString()
+					} ).then( function ( r ) { return r.json(); } ).then( function ( res ) {
 						if ( ! res || ! res.success ) {
-							prog.textContent = 'Error de red o permisos.';
-							bulk.disabled = false;
+							prog.textContent = ( res && res.data && res.data.msg ) ? res.data.msg : 'Error de red o permisos.';
+							refreshSelection();
 							return;
 						}
-						var d = res.data;
-						var msg = 'Procesados ' + d.processed + ': ' + d.synced + ' sincronizados, ' + d.failed + ' con error.';
-						if ( d.remaining > 0 ) {
-							msg += ' Quedan ' + d.remaining + ' — recargando para continuar…';
-						} else {
-							msg += ' Recargando…';
-						}
-						prog.textContent = msg;
-						setTimeout( function () { window.location.reload(); }, 1500 );
+						// Reflect "en cola" on the selected rows immediately.
+						ids.forEach( function ( id ) {
+							var row = document.getElementById( 'woo2odoo-row-' + id );
+							if ( ! row ) { return; }
+							row.querySelector( '.cell-status' ).innerHTML = badge( 'pending' );
+							var chk = row.querySelector( '.woo2odoo-check' );
+							if ( chk ) { chk.checked = false; }
+						} );
+						refreshSelection();
+						prog.textContent = res.data.queued + ' pedido(s) encolados. Se sincronizan en segundo plano — actualizá la página para ver el avance.';
 					} ).catch( function () {
 						prog.textContent = 'Error de red.';
-						bulk.disabled = false;
+						refreshSelection();
 					} );
 				} );
 			}
