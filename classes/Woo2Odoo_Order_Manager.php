@@ -338,20 +338,20 @@ class Woo2Odoo_Order_Manager {
 			return array( 'result' => 'error', 'msg' => 'Pedido WC no encontrado' );
 		}
 
-		// Find the existing, non-cancelled Sale Order by origin.
+		// The Sale Order is matched by `origin` (= WC order id), which is the authoritative
+		// link in Odoo. This is deliberately NOT trusting any existing `_odoo_sale_order_id`
+		// meta: some testing-era orders were left with a WRONG (off-by-one) SO id, and
+		// re-linking by origin corrects it. Falls back to skipped when no SO exists.
 		$so = $this->client->search_read(
 			'sale.order',
 			array(
 				array( 'origin', '=', (string) $order_id ),
 				array( 'state', '!=', 'cancel' ),
 			),
-			array( 'id', 'name', 'state', 'invoice_ids' ),
-			null,
-			1,
-			null,
+			array( 'id', 'name', 'state', 'invoice_ids', 'amount_total' ),
+			null, 1, null,
 			array( 'single' => true )
 		);
-
 		if ( ! $so ) {
 			return array( 'result' => 'skipped', 'msg' => 'sin Sale Order en Odoo' );
 		}
