@@ -4,7 +4,7 @@ Tags: odoo, woocommerce, erp, integration, chile
 Requires at least: 6.5
 Tested up to: 6.9
 Requires PHP: 8.0
-Stable tag: 1.3.2
+Stable tag: 1.3.3
 License: GPLv3
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -85,6 +85,10 @@ Run `wp cron event list | grep odoo` to inspect the scheduled cron event. You ca
 == Changelog ==
 
 See CHANGELOG.md for detailed release notes.
+
+= 1.3.3 =
+* Fix: format_rut() corrupted RUTs ending in K (~9% of Chilean RUTs)
+* Fix: surface the real Odoo error (e.g. invalid RUT) instead of generic "Customer data unavailable"
 
 = 1.3.2 =
 * Fix: stale Redis cache served phantom Sale Orders (search_read caching is now opt-in, default fresh)

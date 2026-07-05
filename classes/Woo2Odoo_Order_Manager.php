@@ -129,8 +129,12 @@ class Woo2Odoo_Order_Manager {
 			// Get the customer data
 			$customer_data = $this->get_customer_data( $order );
 			if ( !$customer_data ) {
-				$this->client->log_error( 'Error getting customer data', array( 'order_id' => $order_id ) );
-				$this->set_sync_status( (int) $order_id, 'failed', 'Customer data unavailable', $order );
+				// Surface the real Odoo cause (e.g. "RUT inválido") instead of a generic
+				// message — otherwise a bad-RUT failure looks identical to an auth failure.
+				$detail = $this->client->get_last_error();
+				$msg    = 'No se pudo crear/obtener el cliente en Odoo' . ( $detail ? ": {$detail}" : '' );
+				$this->client->log_error( 'Error getting customer data', array( 'order_id' => $order_id, 'detail' => $detail ) );
+				$this->set_sync_status( (int) $order_id, 'failed', $msg, $order );
 				return false;
 			}
 			// Search if the order exists in Odoo
@@ -891,11 +895,20 @@ class Woo2Odoo_Order_Manager {
 	}
 
 	public function format_rut( $rut ) {
-		// Remove any non-numeric characters
-		$rut = preg_replace( '/[^0-9]/', '', $rut );
+		// Keep digits AND the check digit K (uppercased). The previous version stripped
+		// everything non-numeric, which turned a valid K-ending RUT (e.g. 14501736-K,
+		// ~9% of Chilean RUTs) into a different, wrong RUT (14501736 → 1450173-6).
+		$rut = strtoupper( preg_replace( '/[^0-9kK]/', '', (string) $rut ) );
 
-		// Insert the hyphen before the last character
-		$formatted_rut = substr( $rut, 0, -1 ) . '-' . substr( $rut, -1 );
+		if ( strlen( $rut ) < 2 ) {
+			return $rut; // too short to split into body + check digit
+		}
+
+		// The check digit is the last char (0-9 or K); the body is digits only.
+		$dv   = substr( $rut, -1 );
+		$body = preg_replace( '/[^0-9]/', '', substr( $rut, 0, -1 ) );
+
+		$formatted_rut = $body . '-' . $dv;
 
 		return $formatted_rut;
 	}

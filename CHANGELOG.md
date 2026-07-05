@@ -11,6 +11,12 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-07-05
+
+### Fixed
+- **`format_rut()` corrupted RUTs ending in K.** The formatter stripped every non-digit, so a valid `K` check digit (~9% of Chilean RUTs, e.g. `14501736-K`) was removed and the RUT became a different, wrong number (`1450173-6`). It now preserves the `K` check digit and only strips separators from the body.
+- **Opaque sync failures on customer creation.** When Odoo rejected the partner (e.g. an invalid RUT), `order_sync()` reported the generic `Customer data unavailable`, indistinguishable from an auth failure. The real Odoo error is now captured (`Woo2Odoo_Client::get_last_error()`) and surfaced in `_woo2odoo_sync_error` and the order note (e.g. "RUT [14501736-7] does not seem to be valid").
+
 ## [1.3.2] - 2026-07-05
 
 ### Fixed
