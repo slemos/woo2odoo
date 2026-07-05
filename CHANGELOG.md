@@ -11,6 +11,11 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-05
+
+### Added
+- **Tab "Estado Odoo"** en la configuración del plugin: tabla de pedidos con su meta de sincronización — Pedido, Monto, Sale Order, Boleta, Pago y Estado — con enlaces directos a Odoo (SO/boleta). Botón **"Sincronizar"** por fila (AJAX, actualiza la fila sin recargar) y botón **"Sincronizar todos"** por lote (procesa hasta 15 por clic para evitar timeouts, recarga para continuar). Barra de filtros con contadores (con error / pendientes / sin intentar / sincronizados / todos) y paginación. Lee solo meta almacenada (no consulta Odoo al renderizar). Clase nueva `Woo2Odoo_Sync_Status_Tab`; el botón reutiliza `order_sync()` (mismo camino que el hook y el WP-CLI). Excluye reembolsos del listado.
+
 ## [1.3.3] - 2026-07-05
 
 ### Fixed

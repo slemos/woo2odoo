@@ -87,6 +87,7 @@ final class Woo2Odoo_Plugin {
 		if ( is_admin() ) {
 			$this->admin = Woo2Odoo_Plugin_Admin::instance();
 			Woo2Odoo_Admin_Order_Metabox::register();
+			Woo2Odoo_Sync_Status_Tab::register();
 		}
 		// Admin - End
 
