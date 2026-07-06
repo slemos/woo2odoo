@@ -18,6 +18,9 @@ class Woo2Odoo_Order_Manager {
 
 	private Woo2Odoo_Client $client;
 
+	/** Razón legible del último fallo en get_customer_data(), para surfacear en el error de sync. */
+	private string $last_customer_error_detail = '';
+
 	/**
 	 * @var array an array that stores the default mapping for fields between Odoo and WooCommerce
 	 */
@@ -89,6 +92,7 @@ class Woo2Odoo_Order_Manager {
 		$order->update_meta_data( '_woo2odoo_sync_date', current_time( 'mysql' ) );
 		if ( $error !== '' ) {
 			$order->update_meta_data( '_woo2odoo_sync_error', mb_substr( $error, 0, 255 ) );
+			$order->add_order_note( 'Woo2Odoo: ' . $error );
 		} elseif ( 'synced' === $status ) {
 			$order->delete_meta_data( '_woo2odoo_sync_error' );
 		}
@@ -96,8 +100,9 @@ class Woo2Odoo_Order_Manager {
 	}
 
 	public function order_sync( $order_id ) {
+		$this->last_customer_error_detail = '';
 		if ( !$this->client->authenticate() ) {
-			$this->set_sync_status( (int) $order_id, 'failed', 'Odoo auth failed' );
+			$this->set_sync_status( (int) $order_id, 'failed', 'No se pudo autenticar con Odoo — verifica la API key en la configuración del plugin.' );
 			return false;
 		}
 
@@ -131,7 +136,7 @@ class Woo2Odoo_Order_Manager {
 			if ( !$customer_data ) {
 				// Surface the real Odoo cause (e.g. "RUT inválido") instead of a generic
 				// message — otherwise a bad-RUT failure looks identical to an auth failure.
-				$detail = $this->client->get_last_error();
+				$detail = $this->last_customer_error_detail ?: $this->client->get_last_error();
 				$msg    = 'No se pudo crear/obtener el cliente en Odoo' . ( $detail ? ": {$detail}" : '' );
 				$this->client->log_error( 'Error getting customer data', array( 'order_id' => $order_id, 'detail' => $detail ) );
 				$this->set_sync_status( (int) $order_id, 'failed', $msg, $order );
@@ -238,7 +243,10 @@ class Woo2Odoo_Order_Manager {
 
 				// Check if creation went ok
 				if ( !$odoo_order_id ) {
+					$odoo_err = $this->client->get_last_error();
+					$msg      = 'No se pudo crear el pedido de venta en Odoo' . ( $odoo_err ? ": {$odoo_err}" : '' );
 					$this->client->log_error( 'Failed to create order in Odoo', $order_data );
+					$this->set_sync_status( (int) $order_id, 'failed', $msg, $order );
 					return false;
 				}
 				$is_new_order = true;
@@ -938,6 +946,7 @@ class Woo2Odoo_Order_Manager {
 		$billing = $order->get_address( 'billing' );
 
 		if ( empty( $billing['email'] ) ) {
+			$this->last_customer_error_detail = 'el pedido no tiene email de facturación';
 			$this->client->log_error( 'Error creating customer in Odoo', array( 'msg' => 'Guest order has no billing email' ) );
 			return false;
 		}
