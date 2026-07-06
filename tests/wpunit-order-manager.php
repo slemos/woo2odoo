@@ -89,6 +89,7 @@ class WPUnit_Order_Manager_Test extends TestCase {
 		$order->method( 'get_payment_method' )->willReturn( $config['payment_method'] ?? '' );
 		$order->method( 'get_total' )->willReturn( (float) ( $config['total'] ?? 0.0 ) );
 		$order->method( 'get_id' )->willReturn( (int) ( $config['id'] ?? 1 ) );
+		$order->method( 'get_status' )->willReturn( $config['status'] ?? 'processing' );
 
 		$meta = $config['meta'] ?? [];
 		$order->method( 'get_meta' )->willReturnCallback(
@@ -133,6 +134,16 @@ class WPUnit_Order_Manager_Test extends TestCase {
 		$result = $this->call_payment_info( $order );
 
 		$this->assertSame( date( 'Y-m-d' ), $result['date'] );
+	}
+
+	public function test_bacs_on_hold_returns_false(): void {
+		$order = $this->mock_order( [
+			'payment_method' => 'bacs',
+			'total'          => 15990.0,
+			'status'         => 'on-hold',
+		] );
+
+		$this->assertFalse( $this->call_payment_info( $order ), 'BACS en on-hold NO debe generar payment (transferencia aún no confirmada).' );
 	}
 
 	// --- Transbank WebPay Plus ---
