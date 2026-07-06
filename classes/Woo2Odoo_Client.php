@@ -36,6 +36,12 @@ class Woo2Odoo_Client {
 	private $client;
 
 	/**
+	 * @var string Last Odoo error message captured by log_exception(). Lets callers
+	 *             surface the real cause (e.g. "RUT inválido") instead of a generic message.
+	 */
+	private $last_error = '';
+
+	/**
 	 * Constructor
 	 */
 	public function __construct() {
@@ -71,6 +77,7 @@ class Woo2Odoo_Client {
 	 *  - `order` : Eg. `'name'` or `'name DESC'`
 	 *
 	 * @param array $options : Available options:
+	 *   - `cache` : set true to cache the result for HOUR_IN_SECONDS. OPT-IN — default is no cache. Only use for immutable/slow-changing data (SKU→id maps, res.country/state). Never for mutable state (sale.order, account.move/payment, res.partner, stock).
 	 *   - `indexBy` : field name to index the returned array by
 	 *   - `single` : set true to return a single record, or null if nothing found. Or set string 'require' to throw Exception if nothing found
 	 *   - `expandFields` : Expand a field with an array of record IDs into a new property called `_expanded`. Eg. `['invoice_line_ids' => ['model' => 'account.move.line']]�
@@ -80,13 +87,25 @@ class Woo2Odoo_Client {
 		if ( !$this->authenticate() ) {
 			return false;
 		}
+
+		// Caching is OPT-IN, not the default. Odoo records that carry mutable state
+		// (sale.order, account.move/payment, res.partner, stock levels…) must never be
+		// served from a stale cache — doing so once made the order_sync guard link a
+		// phantom SO that had already been deleted in Odoo. Callers pass `'cache' => true`
+		// only for immutable/slow-changing lookups (SKU→id maps, res.country/state).
+		// `cache` is a woo2odoo option, not an Odoo one, so strip it before forwarding.
+		$use_cache = ! empty( $options['cache'] );
+		unset( $options['cache'] );
+
 		// Generate a unique cache key
-		$cache_key = 'odoo_search_read_' . md5( wp_json_encode( func_get_args() ) );
+		$cache_key = 'odoo_search_read_' . md5( wp_json_encode( array( $model, $where, $fields, $offset, $limit, $order, $options ) ) );
 
 		// Check if the cache exists
-		$cached_result = wp_cache_get( $cache_key, 'woo2odoo' );
-		if ( false !== $cached_result ) {
-			return $cached_result;
+		if ( $use_cache ) {
+			$cached_result = wp_cache_get( $cache_key, 'woo2odoo' );
+			if ( false !== $cached_result ) {
+				return $cached_result;
+			}
 		}
 
 		try {
@@ -101,8 +120,8 @@ class Woo2Odoo_Client {
 			// Perform the search_read operation
 			$result = $this->get_client()->searchRead( $model, $args, $options );
 
-			// Store the result in a transient if not null
-			if ( $result ) {
+			// Store the result in cache if not null (only when caching was requested)
+			if ( $result && $use_cache ) {
 				wp_cache_set( $cache_key, $result, 'woo2odoo', HOUR_IN_SECONDS );
 			}
 			return $result;
@@ -191,6 +210,7 @@ class Woo2Odoo_Client {
 	 * @param \Exception $exception The exception to log
 	 */
 	public function log_exception( $message, $exception ) {
+		$this->last_error = $exception->getMessage();
 		wc_get_logger()->error(
 			$message,
 			array(
@@ -199,6 +219,15 @@ class Woo2Odoo_Client {
 				'trace'   => $exception->getTraceAsString(),
 			)
 		);
+	}
+
+	/**
+	 * Return the last Odoo error message captured (empty string if none).
+	 *
+	 * @return string
+	 */
+	public function get_last_error() {
+		return $this->last_error;
 	}
 
 	/**

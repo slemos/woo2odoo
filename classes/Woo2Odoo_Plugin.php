@@ -87,6 +87,7 @@ final class Woo2Odoo_Plugin {
 		if ( is_admin() ) {
 			$this->admin = Woo2Odoo_Plugin_Admin::instance();
 			Woo2Odoo_Admin_Order_Metabox::register();
+			Woo2Odoo_Sync_Status_Tab::register();
 		}
 		// Admin - End
 
@@ -96,6 +97,10 @@ final class Woo2Odoo_Plugin {
 		// Auto-sync orders to Odoo when status changes to processing or on-hold
 		add_action( 'woocommerce_order_status_processing', array( $this, 'auto_sync_order' ), 10, 1 );
 		add_action( 'woocommerce_order_status_on-hold', array( $this, 'auto_sync_order' ), 10, 1 );
+
+		// Background sync via Action Scheduler (enqueued from the "Estado Odoo" tab).
+		// Registered unconditionally (the queue runs in cron/loopback context, not is_admin).
+		add_action( 'woo2odoo_sync_single', array( $this, 'auto_sync_order' ), 10, 1 );
 
 		// Auto-create credit note in Odoo when WC registers a refund
 		add_action( 'woocommerce_order_refunded', array( $this, 'auto_refund_order' ), 10, 2 );

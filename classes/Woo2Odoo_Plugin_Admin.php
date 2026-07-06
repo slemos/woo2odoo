@@ -94,7 +94,9 @@ final class Woo2Odoo_Plugin_Admin {
 		<div class="wrap woo2odoo-plugin-wrap">
 			<?php
 				$this->admin_header_html( $sections, $title );
-			if ( 'tools' !== $tab ) {
+			if ( 'sync-status' === $tab ) {
+				Woo2Odoo_Sync_Status_Tab::render_tab();
+			} elseif ( 'tools' !== $tab ) {
 				?>
 			<form action="options.php" method="post">
 				<?php

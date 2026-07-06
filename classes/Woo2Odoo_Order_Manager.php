@@ -78,8 +78,26 @@ class Woo2Odoo_Order_Manager {
 		$this->client = new Woo2Odoo_Client();
 	}
 
+	private function set_sync_status( int $order_id, string $status, string $error = '', ?\WC_Order $order = null ): void {
+		if ( ! $order ) {
+			$order = wc_get_order( $order_id );
+		}
+		if ( ! $order ) {
+			return;
+		}
+		$order->update_meta_data( '_woo2odoo_sync_status', $status );
+		$order->update_meta_data( '_woo2odoo_sync_date', current_time( 'mysql' ) );
+		if ( $error !== '' ) {
+			$order->update_meta_data( '_woo2odoo_sync_error', mb_substr( $error, 0, 255 ) );
+		} elseif ( 'synced' === $status ) {
+			$order->delete_meta_data( '_woo2odoo_sync_error' );
+		}
+		$order->save();
+	}
+
 	public function order_sync( $order_id ) {
 		if ( !$this->client->authenticate() ) {
+			$this->set_sync_status( (int) $order_id, 'failed', 'Odoo auth failed' );
 			return false;
 		}
 
@@ -90,11 +108,33 @@ class Woo2Odoo_Order_Manager {
 				return false;
 			}
 
+			$this->set_sync_status( (int) $order_id, 'pending', '', $order );
+
+			// Pre-flight: reject orders with invalid line quantities BEFORE touching Odoo.
+			// A line with qty <= 0 (data corruption, e.g. an external REST PUT that zeroed
+			// quantities) would otherwise divide-by-zero in add_order_line_items and leave
+			// an orphan empty sale.order in Odoo. Fail cleanly so the order can be fixed.
+			foreach ( $order->get_items() as $item ) {
+				if ( (float) $item->get_quantity() <= 0 ) {
+					$sku = $item->get_product() ? $item->get_product()->get_sku() : $item->get_name();
+					$msg = "Línea con cantidad 0 o inválida ({$sku}) — datos del pedido corruptos. Corrige las cantidades antes de sincronizar.";
+					$order->add_order_note( "Woo2Odoo: sincronización abortada — {$msg}" );
+					$this->client->log_warning( 'Sync aborted: order line with qty <= 0', array( 'order_id' => $order_id, 'sku' => $sku ) );
+					$this->set_sync_status( (int) $order_id, 'failed', $msg, $order );
+					return false;
+				}
+			}
+
 			$odoo_order_state = $this->odoo_states( $this->default_mapping[ $order->get_status() ], 'order_state' );
 			// Get the customer data
 			$customer_data = $this->get_customer_data( $order );
 			if ( !$customer_data ) {
-				$this->client->log_error( 'Error getting customer data', array( 'order_id' => $order_id ) );
+				// Surface the real Odoo cause (e.g. "RUT inválido") instead of a generic
+				// message — otherwise a bad-RUT failure looks identical to an auth failure.
+				$detail = $this->client->get_last_error();
+				$msg    = 'No se pudo crear/obtener el cliente en Odoo' . ( $detail ? ": {$detail}" : '' );
+				$this->client->log_error( 'Error getting customer data', array( 'order_id' => $order_id, 'detail' => $detail ) );
+				$this->set_sync_status( (int) $order_id, 'failed', $msg, $order );
 				return false;
 			}
 			// Search if the order exists in Odoo
@@ -106,14 +146,65 @@ class Woo2Odoo_Order_Manager {
 						'=',
 						"$order_id",
 					),
+					array(
+						'state',
+						'!=',
+						'cancel',
+					),
 				),
-				array( 'id', 'amount_total', 'state', 'invoice_status' ),
+				array( 'id', 'amount_total', 'state', 'invoice_status', 'invoice_ids' ),
 				null,
 				1,
 				null,
 				array( 'single' => true )
 			);
 			$is_new_order = false;
+			if ( $odoo_order ) {
+				// SO already exists in Odoo — link WC meta to it instead of blocking.
+				$order->update_meta_data( '_odoo_sale_order_id', $odoo_order->id );
+				$order->save();
+
+				$invoice_ids = isset( $odoo_order->invoice_ids ) ? (array) $odoo_order->invoice_ids : array();
+				if ( ! empty( $invoice_ids ) ) {
+					$inv = $this->client->search_read(
+						'account.move',
+						array( array( 'id', '=', (int) $invoice_ids[0] ) ),
+						array( 'id' ),
+						null, 1, null,
+						array( 'single' => true )
+					);
+					if ( $inv ) {
+						$order->update_meta_data( '_woo2odoo_invoice_id', $inv->id );
+						$order->save();
+
+						$payment = $this->client->search_read(
+							'account.payment',
+							array( array( 'invoice_ids', 'in', array( (int) $inv->id ) ) ),
+							array( 'id' ),
+							null, 1, null,
+							array( 'single' => true )
+						);
+						if ( $payment ) {
+							$order->update_meta_data( '_woo2odoo_payment_id', $payment->id );
+							$order->save();
+						}
+					}
+				}
+
+				$order->add_order_note(
+					"Woo2Odoo: Pedido vinculado a SO existente en Odoo (ID {$odoo_order->id}, estado: {$odoo_order->state}). No se creó un nuevo pedido."
+				);
+				$this->client->log_info(
+					'Sync: linked WC order to existing active SO in Odoo',
+					array(
+						'order_id'      => $order_id,
+						'odoo_order_id' => $odoo_order->id,
+						'odoo_state'    => $odoo_order->state,
+					)
+				);
+				$this->set_sync_status( (int) $order_id, 'synced', '', $order );
+				return true;
+			}
 			if ( !$odoo_order ) {
 				// Create the order in Odoo
 				$order_data = array(
@@ -150,7 +241,7 @@ class Woo2Odoo_Order_Manager {
 						array(
 							'order_id'     => $order_id,
 							'order_status' => $order->get_status(),
-							'odoo_status'  => $odoo_order['state'],
+							'odoo_status'  => $odoo_order->state,
 						)
 					);
 				}
@@ -211,12 +302,93 @@ class Woo2Odoo_Order_Manager {
 				}
 			}
 
-		} catch (Exception $e) {
+		} catch (\Throwable $e) {
+			// \Throwable (not just Exception) so PHP Errors mid-sync (e.g. a
+			// DivisionByZeroError on bad line data) set status=failed instead of
+			// fataling and leaving partially-created Odoo records behind.
 			$this->client->log_exception( 'Odoo order_sync failed', $e );
+			$this->set_sync_status( (int) $order_id, 'failed', $e->getMessage() );
 			return false;
 		}
 
+		$this->set_sync_status( (int) $order_id, 'synced', '', $order );
 		return true;
+	}
+
+	/**
+	 * Backfill: link an OLD WC order to its already-existing Odoo Sale Order + Invoice
+	 * WITHOUT creating anything in Odoo and WITHOUT a payment.
+	 *
+	 * For legacy orders that were reconciled manually (or by the old wc2odoo plugin):
+	 * finds the sale.order by origin, records `_odoo_sale_order_id` and
+	 * `_woo2odoo_invoice_id`, and marks the WC order as `synced`. No account.payment
+	 * is created — reconciliation was done by hand. Idempotent and read-only on Odoo.
+	 *
+	 * @param int  $order_id WooCommerce order ID.
+	 * @param bool $dry_run  When true, only reports what would be linked (no writes).
+	 * @return array{result:string, so?:int, so_name?:string, invoice?:int, msg?:string}
+	 */
+	public function backfill_from_odoo( $order_id, $dry_run = false ) {
+		if ( ! $this->client->authenticate() ) {
+			return array( 'result' => 'error', 'msg' => 'Odoo auth failed' );
+		}
+
+		$order = wc_get_order( $order_id );
+		if ( ! $order instanceof \WC_Order ) {
+			return array( 'result' => 'error', 'msg' => 'Pedido WC no encontrado' );
+		}
+
+		// The Sale Order is matched by `origin` (= WC order id), which is the authoritative
+		// link in Odoo. This is deliberately NOT trusting any existing `_odoo_sale_order_id`
+		// meta: some testing-era orders were left with a WRONG (off-by-one) SO id, and
+		// re-linking by origin corrects it. Falls back to skipped when no SO exists.
+		$so = $this->client->search_read(
+			'sale.order',
+			array(
+				array( 'origin', '=', (string) $order_id ),
+				array( 'state', '!=', 'cancel' ),
+			),
+			array( 'id', 'name', 'state', 'invoice_ids', 'amount_total' ),
+			null, 1, null,
+			array( 'single' => true )
+		);
+		if ( ! $so ) {
+			return array( 'result' => 'skipped', 'msg' => 'sin Sale Order en Odoo' );
+		}
+
+		// Pick the invoice to link. Prefer the invoice the legacy wc2odoo meta pointed to
+		// (that is the one that was reconciled), as long as it belongs to this SO;
+		// otherwise fall back to the SO's first linked invoice.
+		$invoice_ids = isset( $so->invoice_ids ) ? array_map( 'intval', (array) $so->invoice_ids ) : array();
+		$legacy_inv  = (int) $order->get_meta( '_odoo_invoice_id' );
+		$invoice_id  = 0;
+		if ( $legacy_inv && in_array( $legacy_inv, $invoice_ids, true ) ) {
+			$invoice_id = $legacy_inv;
+		} elseif ( ! empty( $invoice_ids ) ) {
+			$invoice_id = $invoice_ids[0];
+		}
+
+		if ( $dry_run ) {
+			return array( 'result' => 'would-link', 'so' => (int) $so->id, 'so_name' => (string) $so->name, 'invoice' => (int) $invoice_id );
+		}
+
+		$order->update_meta_data( '_odoo_sale_order_id', $so->id );
+		if ( $invoice_id ) {
+			$order->update_meta_data( '_woo2odoo_invoice_id', $invoice_id );
+		}
+
+		// Mark synced, NO payment (manual reconciliation).
+		$order->update_meta_data( '_woo2odoo_sync_status', 'synced' );
+		$order->update_meta_data( '_woo2odoo_sync_date', current_time( 'mysql' ) );
+		$order->delete_meta_data( '_woo2odoo_sync_error' );
+		$order->add_order_note(
+			"Woo2Odoo backfill: vinculado a Sale Order {$so->name} (ID {$so->id})"
+			. ( $invoice_id ? " y boleta ID {$invoice_id}" : '' )
+			. " existentes en Odoo. Marcado como sincronizado SIN crear pago (conciliación manual)."
+		);
+		$order->save();
+
+		return array( 'result' => 'linked', 'so' => (int) $so->id, 'so_name' => (string) $so->name, 'invoice' => (int) $invoice_id );
 	}
 
 	/**
@@ -799,11 +971,20 @@ class Woo2Odoo_Order_Manager {
 	}
 
 	public function format_rut( $rut ) {
-		// Remove any non-numeric characters
-		$rut = preg_replace( '/[^0-9]/', '', $rut );
+		// Keep digits AND the check digit K (uppercased). The previous version stripped
+		// everything non-numeric, which turned a valid K-ending RUT (e.g. 14501736-K,
+		// ~9% of Chilean RUTs) into a different, wrong RUT (14501736 → 1450173-6).
+		$rut = strtoupper( preg_replace( '/[^0-9kK]/', '', (string) $rut ) );
 
-		// Insert the hyphen before the last character
-		$formatted_rut = substr( $rut, 0, -1 ) . '-' . substr( $rut, -1 );
+		if ( strlen( $rut ) < 2 ) {
+			return $rut; // too short to split into body + check digit
+		}
+
+		// The check digit is the last char (0-9 or K); the body is digits only.
+		$dv   = substr( $rut, -1 );
+		$body = preg_replace( '/[^0-9]/', '', substr( $rut, 0, -1 ) );
+
+		$formatted_rut = $body . '-' . $dv;
 
 		return $formatted_rut;
 	}
@@ -821,14 +1002,14 @@ class Woo2Odoo_Order_Manager {
 		}
 		$state_codes = array();
 
-		$country = $this->client->search_read( 'res.country', array( array( 'code', '=', $country_code ) ), array( 'id' ), null, 1, null, array( 'single' => true ) );
+		$country = $this->client->search_read( 'res.country', array( array( 'code', '=', $country_code ) ), array( 'id' ), null, 1, null, array( 'single' => true, 'cache' => true ) );
 		if ( $country ) {
 			$state_codes['country'] = $country->id;
 
 			if ( 'Región Metropolitana de Santiago' === $state_code ) {
 				$state_code = 'Metropolitana';
 			}
-			$states = $this->client->search_read( 'res.country.state', array( array( 'name', 'like', "%{$state_code}%" ), array( 'country_id', '=', $country->id ) ), array( 'id' ), null, 1, null, array( 'single' => true ) );
+			$states = $this->client->search_read( 'res.country.state', array( array( 'name', 'like', "%{$state_code}%" ), array( 'country_id', '=', $country->id ) ), array( 'id' ), null, 1, null, array( 'single' => true, 'cache' => true ) );
 			if ( $states ) {
 				$state_codes['state'] = $states->id;
 			} else {
@@ -937,7 +1118,7 @@ class Woo2Odoo_Order_Manager {
 			$skus[] = $item->get_product()->get_sku();
 		}
 		// Query Odoo for the products
-		$products = $this->client->search_read( 'product.product', array( array( 'default_code', 'in', $skus ) ), array( 'default_code', 'id' ), null, 1000, null, array( 'indexBy' => 'default_code' ) );
+		$products = $this->client->search_read( 'product.product', array( array( 'default_code', 'in', $skus ) ), array( 'default_code', 'id' ), null, 1000, null, array( 'indexBy' => 'default_code', 'cache' => true ) );
 		return $products;
 	}
 
@@ -1076,13 +1257,18 @@ class Woo2Odoo_Order_Manager {
 			);
 		} elseif ( 'woo-mercado-pago-basic' === $payment_method ) {
 			$payment_ids = $order->get_meta( '_Mercado_Pago_Payment_IDs' );
-			$paid_date = $order->get_meta( '_paid_date' );
 
-			if ( empty( $payment_ids ) || empty( $paid_date ) ) {
+			if ( empty( $payment_ids ) ) {
 				return false;
 			}
 
 			$amount = (float) $order->get_total();
+
+			$paid_date = $order->get_meta( '_paid_date' );
+			if ( empty( $paid_date ) ) {
+				$date_paid = $order->get_date_paid();
+				$paid_date = $date_paid ? $date_paid->format( 'Y-m-d H:i:s' ) : '';
+			}
 
 			$date = $this->parse_mercadopago_date( $paid_date );
 
@@ -1350,7 +1536,7 @@ class Woo2Odoo_Order_Manager {
 					array( array( 'default_code', 'in', $skus ) ),
 					array( 'id', 'default_code' ),
 					null, 1000, null,
-					array( 'indexBy' => 'default_code' )
+					array( 'indexBy' => 'default_code', 'cache' => true )
 				) ?: array();
 			}
 
@@ -1400,7 +1586,7 @@ class Woo2Odoo_Order_Manager {
 
 			return $credit_note_id;
 
-		} catch ( Exception $e ) {
+		} catch ( \Throwable $e ) {
 			$this->client->log_exception( 'refund_sync failed', $e );
 			return false;
 		}
