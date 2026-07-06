@@ -153,10 +153,9 @@ class Woo2Odoo_Stock_Manager {
 			);
 		}
 
-		// Flush cached Odoo API responses so this run always queries fresh data.
-		// search_read() caches by default for HOUR_IN_SECONDS; without this flush
-		// a manual or back-to-back sync would silently return stale Odoo stock.
-		wp_cache_flush_group( 'woo2odoo' );
+		// Note: search_read() no longer caches by default (caching is opt-in via the
+		// 'cache' option). The free_qty query below does not opt in, so it always reads
+		// fresh Odoo stock — no cache flush needed here.
 
 		$stats = array(
 			'updated'   => 0,

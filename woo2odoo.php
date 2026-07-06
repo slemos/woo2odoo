@@ -3,7 +3,7 @@
  * Plugin Name: Woo2Odoo
  * Plugin URI: http://github.com/slemos/woo2odoo_main_instance
  * Description: WooCommerce to Odoo Integration plugin
- * Version: 1.0.0
+ * Version: 1.4.0
  * Author: Sebastian Lemos
  * Author URI: http://github.com/slemos
  * Requires at least: 5.6.0
@@ -54,6 +54,11 @@ function woo2odoo_main_instance() {
 	return Woo2Odoo_Plugin::instance();
 }
 add_action( 'plugins_loaded', 'woo2odoo_main_instance' );
+
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+	WP_CLI::add_command( 'woo2odoo sync', array( 'Woo2Odoo\Woo2Odoo_CLI', 'sync' ) );
+	WP_CLI::add_command( 'woo2odoo backfill', array( 'Woo2Odoo\Woo2Odoo_CLI', 'backfill' ) );
+}
 
 register_activation_hook( __FILE__, 'woo2odoo_on_activate' );
 register_deactivation_hook( __FILE__, 'woo2odoo_on_deactivate' );
