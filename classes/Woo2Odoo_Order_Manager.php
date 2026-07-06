@@ -221,6 +221,14 @@ class Woo2Odoo_Order_Manager {
 									$order->update_meta_data( '_woo2odoo_payment_id', $new_payment_id );
 									$order->save();
 								}
+							} else {
+								$method = $order->get_payment_method();
+								$razon  = $method
+									? "método de pago '{$method}' no reconocido"
+									: 'sin método de pago configurado';
+								$order->add_order_note(
+									"Woo2Odoo: boleta (ID {$inv->id}) sincronizada sin pago — {$razon}. Regístralo manualmente en Odoo si corresponde."
+								);
 							}
 						}
 					}
