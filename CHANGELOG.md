@@ -11,6 +11,14 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-07-06
+
+### Fixed
+- **HPOS compatibility en `create_invoice_for_so()`**: reemplazado `get_post_meta()` por `wc_get_order()->get_meta()` para leer `_billing_invoice_type`. Con HPOS activo y sync-on-read deshabilitado (WC 10.7+), `get_post_meta()` puede retornar un valor stale; la lectura vía WC CRUD va directo a `wc_orders_meta`.
+
+### Changed
+- Eliminada función `create_invoice()` (código muerto — nunca fue invocada desde ningún caller activo; su funcionalidad equivalente existe en `create_invoice_for_so()`).
+
 ## [1.5.0] - 2026-07-06
 
 ### Added
