@@ -1296,9 +1296,12 @@ class Woo2Odoo_Order_Manager {
 				'memo'   => $memo,
 			);
 		} elseif ( 'bacs' === $payment_method ) {
-			// Transferencia bancaria: el admin (Sigrid) confirma el pago manualmente al pasar
-			// el pedido a "processing". No hay meta de gateway — usamos el total del pedido
-			// y la fecha en que se marcó como pagado (o la fecha actual si no está seteada).
+			// Transferencia bancaria: el admin confirma el pago manualmente al pasar el pedido
+			// a "processing". Sin meta del gateway, la única señal fiable es el status de WC.
+			// Devolver false en on-hold evita crear el payment antes de la confirmación.
+			if ( ! in_array( $order->get_status(), array( 'processing', 'completed' ), true ) ) {
+				return false;
+			}
 			$amount    = (float) $order->get_total();
 			$date_paid = $order->get_date_paid();
 			$date      = $date_paid ? $date_paid->format( 'Y-m-d' ) : date( 'Y-m-d' );
