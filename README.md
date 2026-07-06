@@ -1,4 +1,13 @@
-# Woo2Odoo
+```
+ _       __           ___   ____      __
+| |     / /___  ____ |__ \ / __ \____/ /___  ____
+| | /| / / __ \/ __ \__/ // / / / __  / __ \/ __ \
+| |/ |/ / /_/ / /_/ / __// /_/ / /_/ / /_/ / /_/ /
+|__/|__/\____/\____/____/\____/\__,_/\____/\____/
+```
+
+[![PHPUnit](https://github.com/slemos/woo2odoo/actions/workflows/phpunit.yml/badge.svg)](https://github.com/slemos/woo2odoo/actions/workflows/phpunit.yml)
+[![Plugin Check](https://github.com/slemos/woo2odoo/actions/workflows/plugin-check.yml/badge.svg)](https://github.com/slemos/woo2odoo/actions/workflows/plugin-check.yml)
 
 WooCommerce → Odoo integration plugin. Syncs orders, partners, invoices and payments automatically via JSON-RPC 2.0.
 
