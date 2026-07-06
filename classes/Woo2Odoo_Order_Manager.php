@@ -74,8 +74,8 @@ class Woo2Odoo_Order_Manager {
 		),
 	);
 
-	public function __construct() {
-		$this->client = new Woo2Odoo_Client();
+	public function __construct( ?Woo2Odoo_Client $client = null ) {
+		$this->client = $client ?? new Woo2Odoo_Client();
 	}
 
 	private function set_sync_status( int $order_id, string $status, string $error = '', ?\WC_Order $order = null ): void {
@@ -187,6 +187,22 @@ class Woo2Odoo_Order_Manager {
 						if ( $payment ) {
 							$order->update_meta_data( '_woo2odoo_payment_id', $payment->id );
 							$order->save();
+						}
+
+						// Si el pedido pasó a "processing" y aún no tiene payment (ej. transferencia
+						// bancaria confirmada por Sigrid), crearlo ahora.
+						if ( ! $order->get_meta( '_woo2odoo_payment_id' )
+							&& in_array( $order->get_status(), array( 'processing', 'completed' ), true ) ) {
+							$payment_info = $this->get_payment_info_from_wc_order( $order );
+							if ( $payment_info ) {
+								$new_payment_id = $this->create_outstanding_payment(
+									$inv->id, (int) $customer_data['id'], $payment_info, $order
+								);
+								if ( $new_payment_id ) {
+									$order->update_meta_data( '_woo2odoo_payment_id', $new_payment_id );
+									$order->save();
+								}
+							}
 						}
 					}
 				}
@@ -1273,6 +1289,20 @@ class Woo2Odoo_Order_Manager {
 			$date = $this->parse_mercadopago_date( $paid_date );
 
 			$memo = 'Pedido WC#' . $order->get_id();
+
+			return array(
+				'amount' => $amount,
+				'date'   => $date,
+				'memo'   => $memo,
+			);
+		} elseif ( 'bacs' === $payment_method ) {
+			// Transferencia bancaria: el admin (Sigrid) confirma el pago manualmente al pasar
+			// el pedido a "processing". No hay meta de gateway — usamos el total del pedido
+			// y la fecha en que se marcó como pagado (o la fecha actual si no está seteada).
+			$amount    = (float) $order->get_total();
+			$date_paid = $order->get_date_paid();
+			$date      = $date_paid ? $date_paid->format( 'Y-m-d' ) : date( 'Y-m-d' );
+			$memo      = 'Pedido WC#' . $order->get_id() . ' - Transferencia Bancaria';
 
 			return array(
 				'amount' => $amount,
