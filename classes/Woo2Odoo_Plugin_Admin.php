@@ -333,13 +333,12 @@ final class Woo2Odoo_Plugin_Admin {
 	}
 
 	public function process_order_action( $order ) {
-		$order_id     = $order->get_id();
+		$order_id      = $order->get_id();
 		$order_manager = new Woo2Odoo_Order_Manager();
 		if ( $order_manager->order_sync( $order_id ) ) {
 			$order->add_order_note( __( 'Woo2Odoo: orden sincronizada manualmente con Odoo.', 'woo2odoo-plugin' ) );
-		} else {
-			$order->add_order_note( __( 'Woo2Odoo: error al sincronizar con Odoo. Revisa el log de WooCommerce.', 'woo2odoo-plugin' ) );
 		}
+		// On failure, set_sync_status() already added a specific error note — no generic fallback needed.
 	}
 
 	public function delete_cache() {

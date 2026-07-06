@@ -7,7 +7,7 @@
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 
 $dotenv = Dotenv\Dotenv::createImmutable(dirname(__DIR__));
-$dotenv->load();
+$dotenv->safeLoad(); // .env is optional; wp-env tests mock the Odoo client
 
 $_tests_dir = getenv( 'WP_TESTS_DIR' );
 
@@ -26,17 +26,10 @@ require_once "{$_tests_dir}/includes/functions.php";
  * Manually load the plugin being tested.
  */
 function _manually_load_plugin() {
-	define( 'WP_ADMIN', TRUE );
-//define( 'WP_NETWORK_ADMIN', TRUE ); // Need for Multisite
-define( 'WP_USER_ADMIN', TRUE );
-
-require_once('/var/www/html/wp-load.php');
-require_once( '/var/www/html/wp-admin/includes/admin.php' );
-require_once( '/var/www/html/wp-admin/includes/plugin.php' );
-
-//activate_plugin( '/var/www/html/wp-content/plugins/woocommerce/woocommerce.php' );
-	require_once( '/var/www/html/wp-content/plugins/woocommerce/woocommerce.php' );
-	require dirname( dirname( __FILE__ ) ) . '/woo2odoo.php';
+	// Load WooCommerce before our plugin so WC_Order and class WooCommerce exist.
+	// require_once avoids double-loading when WP later processes active_plugins.
+	require_once WP_PLUGIN_DIR . '/woocommerce/woocommerce.php';
+	require_once dirname( dirname( __FILE__ ) ) . '/woo2odoo.php';
 }
 
 /** @disregard This functions gets loaded on wp-env run phpunit */
