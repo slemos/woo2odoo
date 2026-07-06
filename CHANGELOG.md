@@ -11,6 +11,19 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-06
+
+### Added
+- **Sincronización de pago BACS a Odoo**: cuando un pedido BACS pasa a `processing`, se crea el pago en Odoo (confirmando el SO si aún está en borrador) y se vincula la factura emitida. No se genera pago mientras el pedido está en `on-hold`.
+- **Errores de sync superficiados como notas de pedido WC**: en lugar de fallar silenciosamente, los errores de sincronización quedan registrados como notas internas del pedido con el mensaje específico de Odoo.
+- **Nota cuando la factura se sincroniza pero el método de pago es desconocido**: visibilidad extra para métodos de pago no mapeados.
+- **Suite PHPUnit portable (wp-env)**: tests de integración corren localmente via `wp-env` sin necesidad de credenciales de producción. CI GitHub Actions integrado.
+
+### Fixed
+- El pago BACS no se creaba si el SO estaba en borrador al momento del `processing` — ahora se confirma el SO primero.
+- `get_customer_data()`: el detalle del error de cliente se asignaba después del guard de email, ocultando el error real.
+- `process_order_action()`: se eliminó la nota de error genérica que duplicaba mensajes.
+
 ## [1.4.0] - 2026-07-05
 
 ### Added
