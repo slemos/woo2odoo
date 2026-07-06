@@ -7,7 +7,7 @@
 require_once dirname(__DIR__) . '/vendor/autoload.php';
 
 $dotenv = Dotenv\Dotenv::createImmutable(dirname(__DIR__));
-$dotenv->load();
+$dotenv->safeLoad(); // .env is optional; wp-env tests mock the Odoo client
 
 $_tests_dir = getenv( 'WP_TESTS_DIR' );
 
