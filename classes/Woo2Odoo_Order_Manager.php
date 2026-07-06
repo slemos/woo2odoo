@@ -169,6 +169,20 @@ class Woo2Odoo_Order_Manager {
 				$order->update_meta_data( '_odoo_sale_order_id', $odoo_order->id );
 				$order->save();
 
+				// Si el pedido pasó a processing/completed pero el SO sigue en draft/sent
+				// (típico de BACS: se creó durante on-hold), confirmarlo ahora para que
+				// Odoo genere el albarán de entrega — igual que ocurre cuando MP/Transbank
+				// crean el SO directamente en estado 'sale'.
+				if ( in_array( $order->get_status(), array( 'processing', 'completed' ), true )
+					&& in_array( $odoo_order->state, array( 'draft', 'sent' ), true ) ) {
+					$this->client->execute( 'sale.order', 'action_confirm', array( array( $odoo_order->id ) ) );
+					$order->add_order_note( "Woo2Odoo: Pedido de venta confirmado en Odoo — entrega generada." );
+					$this->client->log_info(
+						'Sync: SO confirmed in Odoo to trigger delivery creation',
+						array( 'order_id' => $order_id, 'odoo_order_id' => $odoo_order->id )
+					);
+				}
+
 				$invoice_ids = isset( $odoo_order->invoice_ids ) ? (array) $odoo_order->invoice_ids : array();
 				if ( ! empty( $invoice_ids ) ) {
 					$inv = $this->client->search_read(
