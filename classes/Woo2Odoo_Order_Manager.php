@@ -822,6 +822,12 @@ class Woo2Odoo_Order_Manager {
 			$email = $billing_address_order['email'];
 		}
 
+		if ( empty( $email ) ) {
+			$this->last_customer_error_detail = 'el pedido no tiene email de facturación';
+			$this->client->log_error( 'get_customer_data: missing billing email', array( 'order_id' => $order->get_id() ) );
+			return false;
+		}
+
 		if ( $email ) {
 			$customer_id = $this->client->search_read(
 				'res.partner',
