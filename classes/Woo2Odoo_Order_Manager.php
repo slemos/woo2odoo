@@ -711,82 +711,129 @@ class Woo2Odoo_Order_Manager {
 	}
 
 	/**
-	 * Create or update customer.
+	 * Create or update customer in Odoo from a registered WP user.
 	 *
-	 * @param WP_User    $customer_data Customer data.
-	 * @param int|null   $customer_id   Customer ID.
+	 * Boleta: creates person partner (is_company=False) with RUT Personal.
+	 * Factura: creates company partner (is_company=True) + contact child.
+	 * Falls back to legacy billing_rut meta for pre-migration users.
+	 *
+	 * @param WP_User    $customer_data WP user object.
+	 * @param int|null   $customer_id   Existing Odoo partner id to update, or null to create.
 	 */
 	public function create_or_update_customer( $customer_data, $customer_id ) {
 
-		if ( !$customer_data ) {
+		if ( ! $customer_data ) {
 			$this->client->log_error( 'Error creating customer in Odoo', array( 'msg' => 'Customer data is empty' ) );
 			return false;
 		}
 
-		$all_meta_for_user = get_user_meta( $customer_data->ID ) ?: array();
-		$billing_state     = isset( $all_meta_for_user['billing_state'][0] ) ? $all_meta_for_user['billing_state'][0] : '';
-		$billing_country   = isset( $all_meta_for_user['billing_country'][0] ) ? $all_meta_for_user['billing_country'][0] : 'CL';
-		$state_county      = $this->get_state_and_country_codes( $billing_state, $billing_country );
+		$all_meta     = get_user_meta( $customer_data->ID ) ?: array();
+		$meta         = function ( $key ) use ( $all_meta ) {
+			return isset( $all_meta[ $key ][0] ) ? $all_meta[ $key ][0] : '';
+		};
 
-		// Build customer name with proper fallbacks to avoid empty names in Odoo
-		$first_name = trim( get_user_meta( $customer_data->ID, 'first_name', true ) );
-		$last_name = trim( get_user_meta( $customer_data->ID, 'last_name', true ) );
+		$billing_state   = $meta( 'billing_state' );
+		$billing_country = $meta( 'billing_country' ) ?: 'CL';
+		$state_county    = $this->get_state_and_country_codes( $billing_state, $billing_country );
 
-		// If user profile names are empty, try billing names from meta
-		if ( empty( $first_name ) && isset( $all_meta_for_user['billing_first_name'][0] ) ) {
-			$first_name = trim( $all_meta_for_user['billing_first_name'][0] );
-		}
-		if ( empty( $last_name ) && isset( $all_meta_for_user['billing_last_name'][0] ) ) {
-			$last_name = trim( $all_meta_for_user['billing_last_name'][0] );
-		}
+		$first_name = trim( get_user_meta( $customer_data->ID, 'first_name', true ) ) ?: trim( $meta( 'billing_first_name' ) );
+		$last_name  = trim( get_user_meta( $customer_data->ID, 'last_name', true ) ) ?: trim( $meta( 'billing_last_name' ) );
+		$contact_name = trim( $first_name . ' ' . $last_name ) ?: $customer_data->display_name ?: $customer_data->user_login;
 
-		// Construct full name with proper spacing
-		$customer_name = trim( $first_name . ' ' . $last_name );
+		$requiere_factura = $meta( 'billing_invoice_type' ) === '1';
 
-		// If still empty, use display_name as fallback
-		if ( empty( $customer_name ) ) {
-			$customer_name = $customer_data->display_name;
-		}
+		if ( $requiere_factura ) {
+			// Factura: company (is_company=True) + contact child.
+			$rut_empresa  = $meta( 'billing_rut_empresa' ) ?: $meta( 'billing_rut' ); // fallback legacy
+			$giro         = $meta( 'billing_giro' ) ?: 'Manicurista';
+			$razon_social = $meta( 'billing_company' ) ?: $contact_name;
 
-		// Final fallback to user_login if still empty
-		if ( empty( $customer_name ) ) {
-			$customer_name = $customer_data->user_login;
-		}
+			$company_data = array(
+				'name'                              => $razon_social,
+				'display_name'                      => $razon_social,
+				'email'                             => $customer_data->user_email,
+				'is_company'                        => true,
+				'customer_rank'                     => 1,
+				'type'                              => 'contact',
+				'phone'                             => $meta( 'billing_phone' ),
+				'street'                            => $meta( 'billing_address_1' ),
+				'city'                              => $meta( 'billing_city' ),
+				'state_id'                          => $state_county['state'],
+				'country_id'                        => $state_county['country'],
+				'zip'                               => $meta( 'billing_postcode' ),
+				'l10n_latam_identification_type_id' => 4,
+				'vat'                               => $this->format_rut( $rut_empresa ),
+				'l10n_cl_sii_taxpayer_type'         => '1',
+				'l10n_cl_dte_email'                 => $meta( 'billing_email' ) ?: $customer_data->user_email,
+				'l10n_cl_activity_description'      => $giro,
+			);
 
-		$data              = array(
-			'name'                              => $customer_name,
-			'display_name'                      => $customer_name,
-			'email'                             => $customer_data->user_email,
-			'customer_rank'                     => 1,
-			'type'                              => 'contact',
-			'phone'                             => isset( $all_meta_for_user['billing_phone'][0] ) ? $all_meta_for_user['billing_phone'][0] : '',
-			'street'                            => isset( $all_meta_for_user['billing_address_1'][0] ) ? $all_meta_for_user['billing_address_1'][0] : '',
-			'city'                              => isset( $all_meta_for_user['billing_city'][0] ) ? $all_meta_for_user['billing_city'][0] : '',
-			'state_id'                          => $state_county['state'],
-			'country_id'                        => $state_county['country'],
-			'zip'                               => isset( $all_meta_for_user['billing_postcode'][0] ) ? $all_meta_for_user['billing_postcode'][0] : '',
-			'l10n_latam_identification_type_id' => 4,
-			'vat'                               => $this->format_rut( isset( $all_meta_for_user['billing_rut'][0] ) ? $all_meta_for_user['billing_rut'][0] : '' ),
-			'l10n_cl_sii_taxpayer_type'         => '1',
-			'l10n_cl_dte_email'                 => isset( $all_meta_for_user['billing_email'][0] ) ? $all_meta_for_user['billing_email'][0] : $customer_data->user_email,
-			'l10n_cl_activity_description'      => !empty( $all_meta_for_user['billing_giro'][0] ) ? $all_meta_for_user['billing_giro'][0] : 'Manicurista',
-		);
+			$company_id = $customer_id
+				? $this->client->update_record( 'res.partner', $customer_id, $company_data )
+				: $this->client->create_record( 'res.partner', $company_data );
 
-		if ( $customer_id ) {
-			$response = $this->client->update_record( 'res.partner', $customer_id, $data );
+			if ( ! $company_id ) {
+				$this->last_customer_error_detail = 'no se pudo crear la empresa en Odoo';
+				return false;
+			}
+
+			// Contact child (person linked to the company).
+			$rut_personal = $meta( 'billing_rut_personal' );
+			$contact_data = array(
+				'name'                              => $contact_name,
+				'email'                             => $customer_data->user_email,
+				'type'                              => 'contact',
+				'parent_id'                         => (int) $company_id,
+				'customer_rank'                     => 0,
+				'l10n_latam_identification_type_id' => 4,
+				'l10n_cl_sii_taxpayer_type'         => '1',
+			);
+			if ( $rut_personal !== '' ) {
+				$contact_data['vat'] = $this->format_rut( $rut_personal );
+			}
+			$this->client->create_record( 'res.partner', $contact_data );
+
+			return $company_id;
+
 		} else {
-			$response = $this->client->create_record( 'res.partner', $data );
-		}
+			// Boleta: single person partner (is_company=False).
+			$rut_personal = $meta( 'billing_rut_personal' ) ?: $meta( 'billing_rut' ); // fallback legacy
+			$giro         = $meta( 'billing_giro' ) ?: 'Manicurista';
 
-		return $response;
+			$data = array(
+				'name'                              => $contact_name,
+				'display_name'                      => $contact_name,
+				'email'                             => $customer_data->user_email,
+				'is_company'                        => false,
+				'customer_rank'                     => 1,
+				'type'                              => 'contact',
+				'phone'                             => $meta( 'billing_phone' ),
+				'street'                            => $meta( 'billing_address_1' ),
+				'city'                              => $meta( 'billing_city' ),
+				'state_id'                          => $state_county['state'],
+				'country_id'                        => $state_county['country'],
+				'zip'                               => $meta( 'billing_postcode' ),
+				'l10n_latam_identification_type_id' => 4,
+				'vat'                               => $this->format_rut( $rut_personal ),
+				'l10n_cl_sii_taxpayer_type'         => '1',
+				'l10n_cl_dte_email'                 => $meta( 'billing_email' ) ?: $customer_data->user_email,
+				'l10n_cl_activity_description'      => $giro,
+			);
+
+			$response = $customer_id
+				? $this->client->update_record( 'res.partner', $customer_id, $data )
+				: $this->client->create_record( 'res.partner', $data );
+
+			return $response;
+		}
 	}
 
 	/**
 	 * Create (or update) an Odoo partner from a guest order's billing address.
 	 *
-	 * Guest checkouts have no WP_User, so the data that create_or_update_customer()
-	 * reads from user meta is unavailable. This builds the same res.partner payload
-	 * from $order->get_address( 'billing' ) plus the order's _billing_rut meta.
+	 * Boleta: creates a person partner (is_company=False) with RUT Personal.
+	 * Factura: creates a company partner (is_company=True) + a contact child.
+	 * Returns the company ID for factura, person ID for boleta.
 	 *
 	 * @param WC_Order  $order       The guest order.
 	 * @param int|null  $customer_id Existing Odoo partner id to update, or null to create.
@@ -802,47 +849,123 @@ class Woo2Odoo_Order_Manager {
 		}
 
 		$billing_state   = isset( $billing['state'] ) ? $billing['state'] : '';
-		$billing_country = !empty( $billing['country'] ) ? $billing['country'] : 'CL';
+		$billing_country = ! empty( $billing['country'] ) ? $billing['country'] : 'CL';
 		$state_county    = $this->get_state_and_country_codes( $billing_state, $billing_country );
 
-		$customer_name = trim( $billing['first_name'] . ' ' . $billing['last_name'] );
-		if ( empty( $customer_name ) ) {
-			$customer_name = $billing['email'];
+		$contact_name = trim( $billing['first_name'] . ' ' . $billing['last_name'] );
+		if ( empty( $contact_name ) ) {
+			$contact_name = $billing['email'];
 		}
 
-		// RUT is stored as order meta (guest orders have no user meta). Prefer the
-		// canonical _billing_rut, fall back to billing_rut.
-		$rut = $order->get_meta( '_billing_rut' );
-		if ( empty( $rut ) ) {
-			$rut = $order->get_meta( 'billing_rut' );
-		}
+		$requiere_factura = $order->get_meta( '_billing_invoice_type' ) === '1';
 
-		$data = array(
-			'name'                              => $customer_name,
-			'display_name'                      => $customer_name,
-			'email'                             => $billing['email'],
-			'customer_rank'                     => 1,
-			'type'                              => 'contact',
-			'phone'                             => isset( $billing['phone'] ) ? $billing['phone'] : '',
-			'street'                            => isset( $billing['address_1'] ) ? $billing['address_1'] : '',
-			'city'                              => isset( $billing['city'] ) ? $billing['city'] : '',
-			'state_id'                          => $state_county['state'],
-			'country_id'                        => $state_county['country'],
-			'zip'                               => isset( $billing['postcode'] ) ? $billing['postcode'] : '',
-			'l10n_latam_identification_type_id' => 4,
-			'vat'                               => $this->format_rut( $rut ),
-			'l10n_cl_sii_taxpayer_type'         => '1',
-			'l10n_cl_dte_email'                 => $billing['email'],
-			'l10n_cl_activity_description'      => 'Manicurista',
-		);
+		if ( $requiere_factura ) {
+			// Factura: company (is_company=True) + contact child.
+			$rut_empresa  = (string) $order->get_meta( '_wc_other/pinkmask/rut_empresa' );
+			if ( empty( $rut_empresa ) ) {
+				$rut_empresa = (string) $order->get_meta( '_billing_rut' ); // legacy fallback
+			}
+			$giro         = (string) $order->get_meta( '_wc_other/pinkmask/giro' );
+			if ( empty( $giro ) ) {
+				$giro = 'Manicurista';
+			}
+			$razon_social = $order->get_billing_company();
+			if ( empty( $razon_social ) ) {
+				$razon_social = $contact_name; // last resort
+			}
 
-		if ( $customer_id ) {
-			$response = $this->client->update_record( 'res.partner', $customer_id, $data );
+			$company_data = array(
+				'name'                              => $razon_social,
+				'display_name'                      => $razon_social,
+				'email'                             => $billing['email'],
+				'is_company'                        => true,
+				'customer_rank'                     => 1,
+				'type'                              => 'contact',
+				'phone'                             => $billing['phone'] ?? '',
+				'street'                            => $billing['address_1'] ?? '',
+				'city'                              => $billing['city'] ?? '',
+				'state_id'                          => $state_county['state'],
+				'country_id'                        => $state_county['country'],
+				'zip'                               => $billing['postcode'] ?? '',
+				'l10n_latam_identification_type_id' => 4,
+				'vat'                               => $this->format_rut( $rut_empresa ),
+				'l10n_cl_sii_taxpayer_type'         => '1',
+				'l10n_cl_dte_email'                 => $billing['email'],
+				'l10n_cl_activity_description'      => $giro,
+			);
+
+			$company_id = $customer_id
+				? $this->client->update_record( 'res.partner', $customer_id, $company_data )
+				: $this->client->create_record( 'res.partner', $company_data );
+
+			if ( ! $company_id ) {
+				$this->last_customer_error_detail = 'no se pudo crear la empresa en Odoo';
+				return false;
+			}
+
+			// Contact child (person linked to the company).
+			$rut_personal = (string) $order->get_meta( '_wc_other/pinkmask/rut_personal' );
+			$contact_data = array(
+				'name'                              => $contact_name,
+				'email'                             => $billing['email'],
+				'type'                              => 'contact',
+				'parent_id'                         => (int) $company_id,
+				'customer_rank'                     => 0,
+				'l10n_latam_identification_type_id' => 4,
+				'l10n_cl_sii_taxpayer_type'         => '1',
+			);
+			if ( $rut_personal !== '' ) {
+				$contact_data['vat'] = $this->format_rut( $rut_personal );
+			}
+			$contact_id = $this->client->create_record( 'res.partner', $contact_data );
+
+			// Store Odoo partner/contact IDs on the order for future bidirectional sync.
+			$order->update_meta_data( '_odoo_partner_id', $company_id );
+			if ( $contact_id ) {
+				$order->update_meta_data( '_odoo_contact_id', $contact_id );
+			}
+			$order->save();
+
+			return $company_id; // sale.order.partner_id must be the company for factura
+
 		} else {
-			$response = $this->client->create_record( 'res.partner', $data );
-		}
+			// Boleta: single person partner (is_company=False).
+			$rut_personal = (string) $order->get_meta( '_wc_other/pinkmask/rut_personal' );
+			if ( empty( $rut_personal ) ) {
+				$rut_personal = (string) $order->get_meta( '_billing_rut' ); // legacy fallback
+			}
 
-		return $response;
+			$data = array(
+				'name'                              => $contact_name,
+				'display_name'                      => $contact_name,
+				'email'                             => $billing['email'],
+				'is_company'                        => false,
+				'customer_rank'                     => 1,
+				'type'                              => 'contact',
+				'phone'                             => $billing['phone'] ?? '',
+				'street'                            => $billing['address_1'] ?? '',
+				'city'                              => $billing['city'] ?? '',
+				'state_id'                          => $state_county['state'],
+				'country_id'                        => $state_county['country'],
+				'zip'                               => $billing['postcode'] ?? '',
+				'l10n_latam_identification_type_id' => 4,
+				'vat'                               => $this->format_rut( $rut_personal ),
+				'l10n_cl_sii_taxpayer_type'         => '1',
+				'l10n_cl_dte_email'                 => $billing['email'],
+				'l10n_cl_activity_description'      => 'Manicurista',
+			);
+
+			$partner_id = $customer_id
+				? $this->client->update_record( 'res.partner', $customer_id, $data )
+				: $this->client->create_record( 'res.partner', $data );
+
+			if ( $partner_id ) {
+				$order->update_meta_data( '_odoo_partner_id', $partner_id );
+				$order->save();
+			}
+
+			return $partner_id;
+		}
 	}
 
 	public function format_rut( $rut ) {
