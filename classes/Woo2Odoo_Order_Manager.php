@@ -608,12 +608,16 @@ class Woo2Odoo_Order_Manager {
 				array( 'single' => true )
 			);
 
+			// Send shipping net of IVA — Odoo applies 19% on its own.
+			// get_shipping_total() returns the IVA-inclusive amount from WC.
+			$shipping_net = round( $order->get_shipping_total() / 1.19, 2 );
+
 			$shipping_data = array(
 				'order_partner_id' => $customer_id,
 				'order_id'         => $odoo_order,
 				'product_id'       => 1229, // Hardcoded shipping product ID
 				'product_uom_qty'  => 1,
-				'price_unit'       => $order->get_shipping_total(),
+				'price_unit'       => $shipping_net,
 			);
 
 			if ( $shipping_line ) {
