@@ -27,6 +27,7 @@ class Woo2Odoo_Order_Manager {
 	public $default_mapping = array(
 		'processing' => 'in_payment',
 		'completed'  => 'paid',
+		'en-despacho' => 'paid',
 		'pending'    => 'quote_order',
 		'failed'     => 'cancelled',
 		'on-hold'    => 'quote_only',
@@ -662,6 +663,13 @@ class Woo2Odoo_Order_Manager {
 			return false;
 		}
 
+		// Determine whether this order requires a company (factura) or person (boleta) partner
+		// so the Odoo search only returns a partner of the correct is_company type.
+		// A boleta order must never reuse a company partner from a prior factura order.
+		$requiere_factura = $user
+			? ( get_user_meta( $user->ID, 'billing_invoice_type', true ) === '1' )
+			: ( $order->get_meta( '_billing_invoice_type' ) === '1' );
+
 		if ( $email ) {
 			$customer_id = $this->client->search_read(
 				'res.partner',
@@ -676,6 +684,7 @@ class Woo2Odoo_Order_Manager {
 						'=',
 						'contact',
 					),
+					array( 'is_company', '=', $requiere_factura ),
 				),
 				array( 'id' ),
 				null,
