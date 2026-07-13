@@ -11,6 +11,11 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-07-09
+
+### Fixed
+- **Shipping cost sent net of IVA to Odoo**: `price_unit` in `add_shipping_line()` was the IVA-inclusive total from WooCommerce; Odoo then applied 19% again, doubling the tax. The value is now divided by 1.19 before being sent so Odoo can calculate IVA on its own.
+
 ## [1.5.1] - 2026-07-06
 
 ### Fixed
