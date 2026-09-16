@@ -11,6 +11,9 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
 
 ## [Unreleased]
 
+### Added
+- **Cancelación propagada a Odoo**: nuevo hook `woocommerce_order_status_cancelled` → `Woo2Odoo_Order_Manager::cancel_sync()`. Cancela el `sale.order` vinculado en Odoo. Los hijos se tratan de forma conservadora: una boleta (`account.move`) en `draft` se cancela también, pero una boleta ya contabilizada (`posted`) NUNCA se cancela automáticamente ni genera una nota de crédito — solo se registra y se deja una nota en el pedido WC pidiendo revisión manual. Mismo criterio para el pago: solo uno en `draft` se cancela automáticamente. Idempotente (`_woo2odoo_cancel_synced`) y degrada con gracia si Odoo no responde.
+
 ## [1.5.2] - 2026-07-09
 
 ### Fixed

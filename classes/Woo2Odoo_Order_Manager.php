@@ -1619,4 +1619,177 @@ class Woo2Odoo_Order_Manager {
 			return false;
 		}
 	}
+
+	/**
+	 * Propagate a WooCommerce order cancellation to Odoo.
+	 *
+	 * Cancels the linked sale.order. Children are handled conservatively:
+	 *  - a DRAFT boleta (account.move, state=draft) is cancelled too — nothing
+	 *    was legally issued yet, so this is safe.
+	 *  - a POSTED (or otherwise non-draft) boleta is NEVER auto-cancelled and no
+	 *    credit note is auto-created — it is a legally meaningful tax document.
+	 *    We only log it and leave an order note asking for manual review.
+	 *  - a DRAFT payment is cancelled too; a posted/reconciled payment is left
+	 *    untouched for the same reason (reversing real money movement
+	 *    automatically is out of scope here).
+	 *
+	 * No-op (returns true) when the order was never synced to Odoo
+	 * (`_odoo_sale_order_id` missing) or when this method already ran for the
+	 * order (idempotent — safe to call again, e.g. a manual re-trigger).
+	 *
+	 * @param int $order_id WooCommerce order ID.
+	 * @return bool True on success or no-op, false on failure.
+	 */
+	public function cancel_sync( $order_id ) {
+		$order = wc_get_order( $order_id );
+		if ( ! $order ) {
+			$this->client->log_warning( 'Odoo cancel_sync failed: Order not found', array( 'order_id' => $order_id ) );
+			return false;
+		}
+
+		$so_id = (int) $order->get_meta( '_odoo_sale_order_id' );
+		if ( ! $so_id ) {
+			// Never synced to Odoo — nothing to cancel.
+			$this->client->log_info( 'Cancel sync skipped: order has no linked Odoo SO', array( 'order_id' => $order_id ) );
+			return true;
+		}
+
+		// Idempotency guard — a second cancel (or a manual re-run) must not
+		// double-act (re-cancel an already-cancelled SO, duplicate notes, etc.).
+		if ( 'yes' === $order->get_meta( '_woo2odoo_cancel_synced' ) ) {
+			$this->client->log_info( 'Cancel sync skipped: already processed for this order', array( 'order_id' => $order_id ) );
+			return true;
+		}
+
+		if ( ! $this->client->authenticate() ) {
+			$this->set_sync_status( (int) $order_id, 'failed', 'No se pudo autenticar con Odoo al cancelar el pedido — verifica la API key en la configuración del plugin.', $order );
+			return false;
+		}
+
+		try {
+			$notes = array();
+
+			$so = $this->client->search_read(
+				'sale.order',
+				array( array( 'id', '=', $so_id ) ),
+				array( 'id', 'name', 'state' ),
+				null, 1, null,
+				array( 'single' => true )
+			);
+
+			if ( ! $so ) {
+				$msg = "No se encontró el pedido de venta (SO ID {$so_id}) en Odoo — puede haber sido eliminado manualmente.";
+				$order->add_order_note( "Woo2Odoo: {$msg}" );
+				$this->client->log_warning( 'Cancel sync: SO not found in Odoo', array( 'order_id' => $order_id, 'so_id' => $so_id ) );
+				$this->set_sync_status( (int) $order_id, 'failed', $msg, $order );
+				return false;
+			}
+
+			if ( 'cancel' === $so->state ) {
+				$notes[] = "El pedido de venta {$so->name} ya estaba cancelado en Odoo.";
+			} else {
+				$cancelled = $this->client->execute( 'sale.order', 'action_cancel', array( array( $so_id ) ) );
+				if ( ! $cancelled ) {
+					$odoo_err = $this->client->get_last_error();
+					$msg      = "No se pudo cancelar el pedido de venta {$so->name} en Odoo" . ( $odoo_err ? ": {$odoo_err}" : '.' );
+					$order->add_order_note( "Woo2Odoo: {$msg}" );
+					$this->client->log_error( 'Cancel sync: failed to cancel SO', array( 'order_id' => $order_id, 'so_id' => $so_id ) );
+					$this->set_sync_status( (int) $order_id, 'failed', $msg, $order );
+					return false;
+				}
+				$notes[] = "Pedido de venta {$so->name} cancelado en Odoo.";
+				$this->client->log_info( 'Cancel sync: SO cancelled', array( 'order_id' => $order_id, 'so_id' => $so_id ) );
+			}
+
+			// Draft boleta: safe to cancel automatically. Posted: leave for a human.
+			$invoice_id = (int) $order->get_meta( '_woo2odoo_invoice_id' );
+			if ( $invoice_id ) {
+				$invoice = $this->client->search_read(
+					'account.move',
+					array( array( 'id', '=', $invoice_id ) ),
+					array( 'id', 'name', 'state' ),
+					null, 1, null,
+					array( 'single' => true )
+				);
+
+				if ( ! $invoice ) {
+					$notes[] = "La boleta (ID {$invoice_id}) ya no existe en Odoo.";
+				} elseif ( 'cancel' === $invoice->state ) {
+					$notes[] = "La boleta {$invoice->name} ya estaba cancelada en Odoo.";
+				} elseif ( 'draft' === $invoice->state ) {
+					$inv_cancelled = $this->client->execute( 'account.move', 'button_cancel', array( array( $invoice_id ) ) );
+					if ( $inv_cancelled ) {
+						$notes[] = "Boleta en borrador {$invoice->name} cancelada en Odoo.";
+						$this->client->log_info( 'Cancel sync: draft invoice cancelled', array( 'order_id' => $order_id, 'invoice_id' => $invoice_id ) );
+					} else {
+						$odoo_err = $this->client->get_last_error();
+						$notes[]  = "No se pudo cancelar la boleta en borrador {$invoice->name} en Odoo" . ( $odoo_err ? ": {$odoo_err}" : '.' ) . ' Revisar manualmente en Odoo.';
+						$this->client->log_warning( 'Cancel sync: failed to cancel draft invoice', array( 'order_id' => $order_id, 'invoice_id' => $invoice_id ) );
+					}
+				} else {
+					// Posted (or any other non-draft) boleta: a legally meaningful tax
+					// document. Never auto-cancel and never auto-create a credit note here.
+					$notes[] = "La boleta {$invoice->name} ya está contabilizada (estado: {$invoice->state}) — NO se canceló automáticamente. Revisar manualmente si corresponde emitir una nota de crédito.";
+					$this->client->log_warning(
+						'Cancel sync: posted invoice left untouched, needs manual review',
+						array( 'order_id' => $order_id, 'invoice_id' => $invoice_id, 'state' => $invoice->state )
+					);
+				}
+			}
+
+			// Payment: only a still-draft payment is safe to auto-cancel; anything
+			// posted/reconciled is left for a human — reversing real money movement
+			// automatically is out of scope.
+			$payment_id = (int) $order->get_meta( '_woo2odoo_payment_id' );
+			if ( $payment_id ) {
+				$payment = $this->client->search_read(
+					'account.payment',
+					array( array( 'id', '=', $payment_id ) ),
+					array( 'id', 'name', 'state' ),
+					null, 1, null,
+					array( 'single' => true )
+				);
+
+				if ( ! $payment ) {
+					$notes[] = "El pago (ID {$payment_id}) ya no existe en Odoo.";
+				// This Odoo runs l10n_cl, where account.payment spells the cancelled
+				// state "canceled"; older versions use "cancelled" and some models
+				// use "cancel". Accept all three so the branch is reachable.
+				} elseif ( in_array( $payment->state, array( 'cancel', 'canceled', 'cancelled' ), true ) ) {
+					$notes[] = "El pago {$payment->name} ya estaba cancelado en Odoo.";
+				} elseif ( 'draft' === $payment->state ) {
+					$pay_cancelled = $this->client->execute( 'account.payment', 'action_cancel', array( array( $payment_id ) ) );
+					if ( $pay_cancelled ) {
+						$notes[] = "Pago en borrador {$payment->name} cancelado en Odoo.";
+						$this->client->log_info( 'Cancel sync: draft payment cancelled', array( 'order_id' => $order_id, 'payment_id' => $payment_id ) );
+					} else {
+						$notes[] = "No se pudo cancelar el pago en borrador {$payment->name} en Odoo. Revisar manualmente en Odoo.";
+						$this->client->log_warning( 'Cancel sync: failed to cancel draft payment', array( 'order_id' => $order_id, 'payment_id' => $payment_id ) );
+					}
+				} else {
+					// Posted/reconciled payment: real money already moved — never touch automatically.
+					$notes[] = "El pago {$payment->name} ya está contabilizado/conciliado (estado: {$payment->state}) — NO se modificó automáticamente. Revisar manualmente en Odoo.";
+					$this->client->log_warning(
+						'Cancel sync: posted/reconciled payment left untouched, needs manual review',
+						array( 'order_id' => $order_id, 'payment_id' => $payment_id, 'state' => $payment->state )
+					);
+				}
+			}
+
+			$order->add_order_note( "Woo2Odoo: Cancelación propagada a Odoo.\n" . implode( "\n", $notes ) );
+			$order->update_meta_data( '_woo2odoo_cancel_synced', 'yes' );
+			$order->save();
+
+			$this->set_sync_status( (int) $order_id, 'cancelled', '', $order );
+			return true;
+
+		} catch ( \Throwable $e ) {
+			// \Throwable so an unexpected PHP Error mid-cancellation degrades
+			// gracefully (status=failed + order note) instead of fataling the
+			// order status transition.
+			$this->client->log_exception( 'cancel_sync failed', $e );
+			$this->set_sync_status( (int) $order_id, 'failed', $e->getMessage(), $order );
+			return false;
+		}
+	}
 }

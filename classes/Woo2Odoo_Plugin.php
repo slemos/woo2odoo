@@ -105,6 +105,9 @@ final class Woo2Odoo_Plugin {
 		// Auto-create credit note in Odoo when WC registers a refund
 		add_action( 'woocommerce_order_refunded', array( $this, 'auto_refund_order' ), 10, 2 );
 
+		// Propagate order cancellation to Odoo (cancel SO, and draft children conservatively)
+		add_action( 'woocommerce_order_status_cancelled', array( $this, 'auto_cancel_order' ), 10, 1 );
+
 		// Stock sync cron hook
 		add_action( 'odoo_process_import_update_stocks', array( $this, 'run_stock_sync' ) );
 
@@ -145,6 +148,21 @@ final class Woo2Odoo_Plugin {
 			$order_manager->refund_sync( $order_id, $refund_id );
 		} catch ( \Throwable $e ) {
 			error_log( 'woo2odoo auto_refund_order failed for order ' . $order_id . ': ' . $e->getMessage() );
+		}
+	}
+
+	/**
+	 * Automatically propagate a WooCommerce order cancellation to Odoo.
+	 *
+	 * @param int $order_id WooCommerce order ID.
+	 */
+	public function auto_cancel_order( int $order_id ): void {
+		try {
+			$order_manager = new Woo2Odoo_Order_Manager();
+			$order_manager->cancel_sync( $order_id );
+		} catch ( \Throwable $e ) {
+			// Log but don't crash the order status transition
+			error_log( 'woo2odoo auto_cancel_order failed for order ' . $order_id . ': ' . $e->getMessage() );
 		}
 	}
 
