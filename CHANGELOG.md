@@ -11,6 +11,12 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-09-16
+
+### Fixed
+- **La cancelación del `sale.order` no ocurría** (detectado probando 1.6.0 en producción). `sale.order::action_cancel` no cancela cuando el pedido tiene una factura asociada: devuelve un `ir.actions.act_window` que abre el asistente "Cancel Quotation". Ese dict es truthy, así que el código lo leía como éxito mientras el SO seguía en `sent`. Ahora se crea y ejecuta el asistente `sale.order.cancel` que Odoo mismo abriría.
+- **Detección de éxito invertida en la boleta**: `account.move::button_cancel` devuelve un valor falsy incluso cuando cancela, por lo que se reportaba un fallo inexistente. El éxito de las tres operaciones (SO, boleta y pago) ahora se verifica releyendo el `state` del registro, nunca por el valor de retorno.
+
 ## [1.6.0] - 2026-09-16
 
 ### Added

@@ -1688,7 +1688,15 @@ class Woo2Odoo_Order_Manager {
 			if ( 'cancel' === $so->state ) {
 				$notes[] = "El pedido de venta {$so->name} ya estaba cancelado en Odoo.";
 			} else {
-				$cancelled = $this->client->execute( 'sale.order', 'action_cancel', array( array( $so_id ) ) );
+				// sale.order::action_cancel does NOT cancel when an invoice exists:
+				// it returns an ir.actions.act_window opening the "Cancel Quotation"
+				// wizard, which is truthy and so reads as success. Drive the wizard
+				// Odoo itself would open, then confirm against the record's state.
+				$wizard_id = $this->client->create_record( 'sale.order.cancel', array( 'order_id' => $so_id ) );
+				if ( $wizard_id ) {
+					$this->client->execute( 'sale.order.cancel', 'action_cancel', array( array( (int) $wizard_id ) ) );
+				}
+				$cancelled = $this->record_has_state( 'sale.order', $so_id, 'cancel' );
 				if ( ! $cancelled ) {
 					$odoo_err = $this->client->get_last_error();
 					$msg      = "No se pudo cancelar el pedido de venta {$so->name} en Odoo" . ( $odoo_err ? ": {$odoo_err}" : '.' );
@@ -1717,7 +1725,10 @@ class Woo2Odoo_Order_Manager {
 				} elseif ( 'cancel' === $invoice->state ) {
 					$notes[] = "La boleta {$invoice->name} ya estaba cancelada en Odoo.";
 				} elseif ( 'draft' === $invoice->state ) {
-					$inv_cancelled = $this->client->execute( 'account.move', 'button_cancel', array( array( $invoice_id ) ) );
+					// button_cancel returns a falsy value even on success, so the
+					// record's own state is the only reliable signal.
+					$this->client->execute( 'account.move', 'button_cancel', array( array( $invoice_id ) ) );
+					$inv_cancelled = $this->record_has_state( 'account.move', $invoice_id, 'cancel' );
 					if ( $inv_cancelled ) {
 						$notes[] = "Boleta en borrador {$invoice->name} cancelada en Odoo.";
 						$this->client->log_info( 'Cancel sync: draft invoice cancelled', array( 'order_id' => $order_id, 'invoice_id' => $invoice_id ) );
@@ -1758,7 +1769,8 @@ class Woo2Odoo_Order_Manager {
 				} elseif ( in_array( $payment->state, array( 'cancel', 'canceled', 'cancelled' ), true ) ) {
 					$notes[] = "El pago {$payment->name} ya estaba cancelado en Odoo.";
 				} elseif ( 'draft' === $payment->state ) {
-					$pay_cancelled = $this->client->execute( 'account.payment', 'action_cancel', array( array( $payment_id ) ) );
+					$this->client->execute( 'account.payment', 'action_cancel', array( array( $payment_id ) ) );
+					$pay_cancelled = $this->record_has_state( 'account.payment', $payment_id, array( 'cancel', 'canceled', 'cancelled' ) );
 					if ( $pay_cancelled ) {
 						$notes[] = "Pago en borrador {$payment->name} cancelado en Odoo.";
 						$this->client->log_info( 'Cancel sync: draft payment cancelled', array( 'order_id' => $order_id, 'payment_id' => $payment_id ) );
@@ -1791,5 +1803,32 @@ class Woo2Odoo_Order_Manager {
 			$this->set_sync_status( (int) $order_id, 'failed', $e->getMessage(), $order );
 			return false;
 		}
+	}
+
+	/**
+	 * Whether an Odoo record currently has one of the expected states.
+	 *
+	 * Odoo's cancel methods are not usable as success signals: `action_cancel`
+	 * on sale.order can return a wizard action (truthy) without cancelling,
+	 * and `button_cancel` on account.move returns falsy on success. Re-reading
+	 * the record is the only dependable check.
+	 *
+	 * @param string       $model    Odoo model name.
+	 * @param int          $id       Record ID.
+	 * @param string|array $expected Accepted state value(s).
+	 * @return bool
+	 */
+	private function record_has_state( string $model, int $id, $expected ): bool {
+		$rec = $this->client->search_read(
+			$model,
+			array( array( 'id', '=', $id ) ),
+			array( 'id', 'state' ),
+			null, 1, null,
+			array( 'single' => true )
+		);
+		if ( ! $rec || ! isset( $rec->state ) ) {
+			return false;
+		}
+		return in_array( $rec->state, (array) $expected, true );
 	}
 }
