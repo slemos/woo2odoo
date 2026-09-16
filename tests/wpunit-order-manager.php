@@ -13,15 +13,37 @@ namespace Woo2Odoo;
 use PHPUnit\Framework\TestCase;
 
 /**
+ * Namespaced wc_get_order() stub.
+ *
+ * Woo2Odoo_Order_Manager (namespace Woo2Odoo) calls the unqualified
+ * wc_get_order(); PHP resolves that against Woo2Odoo\wc_get_order() before
+ * falling back to WooCommerce's global one — same technique already used by
+ * tests/test-ordermanager.php. Only cancel_sync() tests register a mock
+ * order here; every other test in this file is unaffected (returns false).
+ */
+function wc_get_order( $order_id ) {
+	return WPUnit_Order_Manager_Test::$mock_orders[ $order_id ] ?? false;
+}
+
+/**
  * @covers Woo2Odoo\Woo2Odoo_Order_Manager
  */
 class WPUnit_Order_Manager_Test extends TestCase {
 
 	private Woo2Odoo_Order_Manager $manager;
+	private $mock_client;
+
+	/** @var \WC_Order[] Registry consumed by the namespaced wc_get_order() stub above. */
+	public static array $mock_orders = array();
 
 	protected function setUp(): void {
-		$mock_client   = $this->createMock( Woo2Odoo_Client::class );
-		$this->manager = new Woo2Odoo_Order_Manager( $mock_client );
+		$this->mock_client = $this->createMock( Woo2Odoo_Client::class );
+		$this->manager      = new Woo2Odoo_Order_Manager( $this->mock_client );
+		self::$mock_orders  = array();
+	}
+
+	protected function tearDown(): void {
+		self::$mock_orders = array();
 	}
 
 	// =========================================================================
@@ -282,5 +304,163 @@ class WPUnit_Order_Manager_Test extends TestCase {
 			has_action( 'woocommerce_order_refunded' ),
 			'El hook woocommerce_order_refunded debe estar registrado.'
 		);
+	}
+
+	public function test_cancelled_hook_is_registered(): void {
+		$this->assertGreaterThan(
+			0,
+			has_action( 'woocommerce_order_status_cancelled' ),
+			'El hook woocommerce_order_status_cancelled debe estar registrado.'
+		);
+	}
+
+	// =========================================================================
+	// cancel_sync
+	// =========================================================================
+
+	/**
+	 * Builds a mock \WC_Order for cancel_sync() tests and registers it so the
+	 * namespaced wc_get_order() stub above can return it, and captures every
+	 * order note added into $notes (by reference) for assertions.
+	 *
+	 * @param int        $order_id WC order ID.
+	 * @param array      $meta     Meta key => value map (get_meta()).
+	 * @param string[]   $notes    Captured by reference — every add_order_note() call lands here.
+	 */
+	private function mock_cancel_order( int $order_id, array $meta, array &$notes ): \WC_Order {
+		$order = $this->createMock( \WC_Order::class );
+		$order->method( 'get_id' )->willReturn( $order_id );
+		$order->method( 'get_meta' )->willReturnCallback(
+			static fn( string $key ) => $meta[ $key ] ?? ''
+		);
+		$order->method( 'add_order_note' )->willReturnCallback(
+			function ( $note ) use ( &$notes ) {
+				$notes[] = $note;
+				return 1;
+			}
+		);
+		// update_meta_data / save / delete_meta_data are no-ops on the mock — cancel_sync
+		// only needs them not to fatal; their effect isn't observable through \WC_Order here.
+
+		self::$mock_orders[ $order_id ] = $order;
+		return $order;
+	}
+
+	public function test_cancel_sync_noop_when_never_synced(): void {
+		$notes = [];
+		$this->mock_cancel_order( 501, [ '_odoo_sale_order_id' => '' ], $notes );
+
+		// No Odoo call at all — the order was never synced, so there is nothing to cancel.
+		$this->mock_client->expects( $this->never() )->method( 'authenticate' );
+		$this->mock_client->expects( $this->never() )->method( 'search_read' );
+		$this->mock_client->expects( $this->never() )->method( 'execute' );
+
+		$this->assertTrue( $this->manager->cancel_sync( 501 ) );
+		$this->assertSame( [], $notes, 'No debería agregarse ninguna nota cuando el pedido nunca se sincronizó.' );
+	}
+
+	public function test_cancel_sync_is_idempotent(): void {
+		$notes = [];
+		$this->mock_cancel_order( 502, [
+			'_odoo_sale_order_id'      => '123',
+			'_woo2odoo_cancel_synced'  => 'yes',
+		], $notes );
+
+		// Already processed — a second run must not touch Odoo again.
+		$this->mock_client->expects( $this->never() )->method( 'authenticate' );
+
+		$this->assertTrue( $this->manager->cancel_sync( 502 ) );
+	}
+
+	public function test_cancel_sync_cancels_so_and_draft_invoice(): void {
+		$notes = [];
+		$this->mock_cancel_order( 503, [
+			'_odoo_sale_order_id' => '123',
+			'_woo2odoo_invoice_id' => '456',
+		], $notes );
+
+		$this->mock_client->method( 'authenticate' )->willReturn( true );
+		$this->mock_client->method( 'search_read' )->willReturnCallback(
+			function ( $model ) {
+				if ( 'sale.order' === $model ) {
+					return (object) [ 'id' => 123, 'name' => 'S00123', 'state' => 'sale' ];
+				}
+				if ( 'account.move' === $model ) {
+					return (object) [ 'id' => 456, 'name' => 'INV456', 'state' => 'draft' ];
+				}
+				return null;
+			}
+		);
+
+		$executed = [];
+		$this->mock_client->method( 'execute' )->willReturnCallback(
+			function ( $model, $method ) use ( &$executed ) {
+				$executed[] = "{$model}::{$method}";
+				return true;
+			}
+		);
+
+		$this->assertTrue( $this->manager->cancel_sync( 503 ) );
+		$this->assertContains( 'sale.order::action_cancel', $executed );
+		$this->assertContains( 'account.move::button_cancel', $executed );
+		$joined = implode( "\n", $notes );
+		$this->assertStringContainsString( 'cancelado en Odoo', $joined );
+	}
+
+	public function test_cancel_sync_leaves_posted_invoice_untouched(): void {
+		$notes = [];
+		$this->mock_cancel_order( 504, [
+			'_odoo_sale_order_id'  => '123',
+			'_woo2odoo_invoice_id' => '456',
+		], $notes );
+
+		$this->mock_client->method( 'authenticate' )->willReturn( true );
+		$this->mock_client->method( 'search_read' )->willReturnCallback(
+			function ( $model ) {
+				if ( 'sale.order' === $model ) {
+					return (object) [ 'id' => 123, 'name' => 'S00123', 'state' => 'sale' ];
+				}
+				if ( 'account.move' === $model ) {
+					return (object) [ 'id' => 456, 'name' => 'INV456', 'state' => 'posted' ];
+				}
+				return null;
+			}
+		);
+
+		$executed = [];
+		$this->mock_client->method( 'execute' )->willReturnCallback(
+			function ( $model, $method ) use ( &$executed ) {
+				$executed[] = "{$model}::{$method}";
+				// A posted account.move must NEVER receive button_cancel (or any write).
+				$this->assertNotSame( 'account.move', $model, "El invoice contabilizado no debe recibir la llamada '{$method}'." );
+				return true;
+			}
+		);
+
+		$this->assertTrue( $this->manager->cancel_sync( 504 ), 'La cancelación del SO igual debe reportarse como éxito.' );
+		$this->assertContains( 'sale.order::action_cancel', $executed );
+		$joined = implode( "\n", $notes );
+		$this->assertStringContainsString( 'NO se canceló automáticamente', $joined );
+		$this->assertStringContainsString( 'revisar manualmente', strtolower( $joined ) );
+	}
+
+	public function test_cancel_sync_degrades_gracefully_when_so_not_found(): void {
+		$notes = [];
+		$this->mock_cancel_order( 505, [ '_odoo_sale_order_id' => '999' ], $notes );
+
+		$this->mock_client->method( 'authenticate' )->willReturn( true );
+		// Simulate the SO having disappeared from Odoo (or an Odoo-side read error
+		// already swallowed by Woo2Odoo_Client, which returns null/false, never throws).
+		$this->mock_client->method( 'search_read' )->willReturn( null );
+		$this->mock_client->expects( $this->never() )->method( 'execute' );
+
+		$this->assertFalse( $this->manager->cancel_sync( 505 ) );
+		$joined = implode( "\n", $notes );
+		$this->assertStringContainsString( 'No se encontró el pedido de venta', $joined );
+	}
+
+	public function test_cancel_sync_returns_false_when_order_missing(): void {
+		// No mock registered for 999 — the namespaced wc_get_order() stub returns false.
+		$this->assertFalse( $this->manager->cancel_sync( 999 ) );
 	}
 }
