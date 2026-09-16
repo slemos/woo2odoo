@@ -1752,7 +1752,10 @@ class Woo2Odoo_Order_Manager {
 
 				if ( ! $payment ) {
 					$notes[] = "El pago (ID {$payment_id}) ya no existe en Odoo.";
-				} elseif ( 'cancelled' === $payment->state ) {
+				// This Odoo runs l10n_cl, where account.payment spells the cancelled
+				// state "canceled"; older versions use "cancelled" and some models
+				// use "cancel". Accept all three so the branch is reachable.
+				} elseif ( in_array( $payment->state, array( 'cancel', 'canceled', 'cancelled' ), true ) ) {
 					$notes[] = "El pago {$payment->name} ya estaba cancelado en Odoo.";
 				} elseif ( 'draft' === $payment->state ) {
 					$pay_cancelled = $this->client->execute( 'account.payment', 'action_cancel', array( array( $payment_id ) ) );
