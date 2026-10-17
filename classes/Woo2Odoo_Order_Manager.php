@@ -102,6 +102,18 @@ class Woo2Odoo_Order_Manager {
 
 	public function order_sync( $order_id ) {
 		$this->last_customer_error_detail = '';
+
+		// Test / Debug skip-list: decided BEFORE touching Odoo (no auth, no calls).
+		// Returns false but leaves sync status `skipped`; callers that report
+		// results check Woo2Odoo_Test_Orders::is_skipped() to word it correctly.
+		$skip_order = wc_get_order( $order_id );
+		$skip_match = Woo2Odoo_Test_Orders::should_skip( $skip_order, 'orders' );
+		if ( '' !== $skip_match ) {
+			Woo2Odoo_Test_Orders::mark_skipped( $skip_order, 'orders', $skip_match );
+			$this->client->log_info( 'Order sync skipped: customer email matches the Test/Debug list', array( 'order_id' => $order_id ) );
+			return false;
+		}
+
 		if ( !$this->client->authenticate() ) {
 			$this->set_sync_status( (int) $order_id, 'failed', 'No se pudo autenticar con Odoo — verifica la API key en la configuración del plugin.' );
 			return false;
@@ -1483,6 +1495,16 @@ class Woo2Odoo_Order_Manager {
 	 * @return int|false Credit note Odoo ID or false on failure.
 	 */
 	public function refund_sync( $order_id, $refund_id ) {
+		// Test / Debug skip-list: no credit note for orders that were never sent to Odoo.
+		$skip_order = wc_get_order( $order_id );
+		$skip_match = Woo2Odoo_Test_Orders::should_skip( $skip_order, 'refunds' );
+		if ( '' !== $skip_match ) {
+			Woo2Odoo_Test_Orders::mark_skipped( $skip_order, 'refunds', $skip_match );
+			$skip_order->save();
+			$this->client->log_info( 'Refund sync skipped: customer email matches the Test/Debug list', array( 'order_id' => $order_id, 'refund_id' => $refund_id ) );
+			return false;
+		}
+
 		if ( ! $this->client->authenticate() ) {
 			return false;
 		}

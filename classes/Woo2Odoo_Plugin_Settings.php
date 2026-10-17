@@ -101,6 +101,18 @@ final class Woo2Odoo_Plugin_Settings {
 				}
 			}
 		}
+
+		// An unchecked checkbox is not submitted at all, so it would silently fall back
+		// to its default on the next read. The Test / Debug tab has default-ON options
+		// (e.g. "Skip refund sync") that must be switchable off, so store them explicitly.
+		if ( Woo2Odoo_Test_Orders::SECTION === $section ) {
+			$input = is_array( $input ) ? $input : array();
+			foreach ( $this->get_settings_fields( $section ) as $k => $field ) {
+				if ( 'checkbox' === $field['type'] && ! isset( $input[ $k ] ) ) {
+					$input[ $k ] = 'false';
+				}
+			}
+		}
 		return $input;
 	}
 
@@ -167,6 +179,36 @@ final class Woo2Odoo_Plugin_Settings {
 	}
 
 	/**
+	 * Validate the Test / Debug email list: keep valid lines, drop and report the rest.
+	 * @access public
+	 * @param  string $v Raw textarea value.
+	 * @return string    Cleaned list, one pattern per line.
+	 */
+	public function validate_field_email_patterns( $v ) {
+		$result = Woo2Odoo_Test_Orders::sanitize_list( is_string( $v ) ? $v : '' );
+		$why    = array(
+			'syntax'       => __( 'invalid characters', 'woo2odoo-plugin' ),
+			'no_at'        => __( 'must contain exactly one @', 'woo2odoo-plugin' ),
+			'broad_domain' => __( 'wildcards are not allowed in the domain', 'woo2odoo-plugin' ),
+			'broad_public' => __( 'too broad: it would match everyone on a public mail provider', 'woo2odoo-plugin' ),
+		);
+		foreach ( $result['rejected'] as $pattern => $problem ) {
+			add_settings_error(
+				'Woo2Odoo-plugin-' . Woo2Odoo_Test_Orders::SECTION,
+				'woo2odoo_test_pattern_' . md5( $pattern ),
+				sprintf(
+					/* translators: 1: rejected pattern, 2: reason */
+					__( 'Test emails: "%1$s" was not saved (%2$s).', 'woo2odoo-plugin' ),
+					$pattern,
+					isset( $why[ $problem ] ) ? $why[ $problem ] : $problem
+				),
+				'error'
+			);
+		}
+		return implode( "\n", $result['valid'] );
+	}
+
+	/**
 	 * Validate the given data, assuming it is from a URL field.
 	 * @access public
 	 * @since  6.0.0
@@ -230,6 +272,7 @@ final class Woo2Odoo_Plugin_Settings {
 		$settings_sections['export']      = __( 'Export', 'woo2odoo_plugin' );
 		$settings_sections['sync-status'] = __( 'Estado Odoo', 'woo2odoo_plugin' );
 		$settings_sections['tools']       = __( 'Tools', 'woo2odoo_plugin' );
+		$settings_sections['testing']     = __( 'Test / Debug', 'woo2odoo_plugin' );
 		// Add your new sections below here.
 		// Admin tabs will be created for each section.
 		// Don't forget to add fields for the section in the get_settings_fields() function below
@@ -368,6 +411,43 @@ final class Woo2Odoo_Plugin_Settings {
 					),
 				);
 				break;
+			case 'testing':
+				$settings_fields['skip_enabled'] = array(
+					'name'        => __( 'Enable test-order skip', 'woo2odoo-plugin' ),
+					'type'        => 'checkbox',
+					'default'     => 'false',
+					'section'     => 'testing',
+					'description' => __( 'Master switch. When on, orders and refunds from the emails listed below are NOT sent to Odoo. Off = everything syncs as usual.', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['skip_emails']  = array(
+					'name'        => __( 'Test emails', 'woo2odoo-plugin' ),
+					'type'        => 'email_patterns',
+					'default'     => '',
+					'section'     => 'testing',
+					'description' => __( 'One per line. Exact email (<code>qa@example.com</code>) or a pattern with <code>*</code> / <code>?</code> (<code>qa+*@example.com</code>, <code>*@my-company.cl</code>). Lines starting with <code>#</code> are comments. Matched against the billing email and the customer account email. Wildcard-only patterns on public providers (e.g. <code>*@gmail.com</code>) and wildcards in the domain are rejected on save.', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['skip_orders']  = array(
+					'name'        => __( 'Skip order sync', 'woo2odoo-plugin' ),
+					'type'        => 'checkbox',
+					'default'     => 'true',
+					'section'     => 'testing',
+					'description' => __( 'Do not create the quotation / invoice / payment in Odoo for matching orders.', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['skip_refunds'] = array(
+					'name'        => __( 'Skip refund sync', 'woo2odoo-plugin' ),
+					'type'        => 'checkbox',
+					'default'     => 'true',
+					'section'     => 'testing',
+					'description' => __( 'Do not create credit notes in Odoo for refunds of matching orders.', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['skip_note']    = array(
+					'name'        => __( 'Add an order note', 'woo2odoo-plugin' ),
+					'type'        => 'checkbox',
+					'default'     => 'true',
+					'section'     => 'testing',
+					'description' => __( 'Leave a note on the order when it is skipped (recommended: a missing order never looks like a sync bug).', 'woo2odoo-plugin' ),
+				);
+				break;
 			default:
 				# code...
 				break;
@@ -433,6 +513,18 @@ final class Woo2Odoo_Plugin_Settings {
 		// Explore how best to escape this data, as esc_textarea() strips HTML tags, it seems.
 		$html = '<textarea id="' . esc_attr( $key ) . '" name="' . esc_attr( $key ) . '" cols="42" rows="5">' . $this->get_value( $args['id'], $args['default'], $args['section'] ) . '</textarea>' . "\n";
 		return $html;
+	}
+
+	/**
+	 * Render HTML markup for the "email_patterns" field type (Test / Debug list).
+	 * @access  protected
+	 * @param   string $key  The unique ID of this field.
+	 * @param   array $args  Arguments used to construct this field.
+	 * @return  string       HTML markup for the field.
+	 */
+	protected function render_field_email_patterns( $key, $args ) {
+		$value = (string) $this->get_value( $args['id'], $args['default'], $args['section'] );
+		return '<textarea id="' . esc_attr( $key ) . '" name="' . esc_attr( $key ) . '" cols="42" rows="6" class="large-text code" spellcheck="false" placeholder="qa@example.com&#10;qa+*@example.com&#10;# comments start with #">' . esc_textarea( $value ) . '</textarea>' . "\n";
 	}
 
 	/**
@@ -506,7 +598,7 @@ final class Woo2Odoo_Plugin_Settings {
 	 * @return  array Supported field type keys.
 	 */
 	public function get_supported_fields() {
-		return (array) apply_filters( 'woo2odoo_plugin_supported_fields', array( 'text', 'checkbox', 'radio', 'textarea', 'select', 'password', 'connection' ) );
+		return (array) apply_filters( 'woo2odoo_plugin_supported_fields', array( 'text', 'checkbox', 'radio', 'textarea', 'select', 'password', 'connection', 'email_patterns' ) );
 	}
 
 	/**

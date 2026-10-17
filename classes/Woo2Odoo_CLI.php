@@ -112,9 +112,10 @@ class Woo2Odoo_CLI {
 			return;
 		}
 
-		$synced = 0;
-		$failed = 0;
-		$bar    = \WP_CLI\Utils\make_progress_bar( 'Sincronizando', $count );
+		$synced  = 0;
+		$failed  = 0;
+		$skipped = 0;
+		$bar     = \WP_CLI\Utils\make_progress_bar( 'Sincronizando', $count );
 
 		foreach ( $orders as $order ) {
 			$oid     = $order->get_id();
@@ -124,6 +125,9 @@ class Woo2Odoo_CLI {
 			if ( $result ) {
 				\WP_CLI::log( sprintf( '  ✓ #%d sincronizado', $oid ) );
 				$synced++;
+			} elseif ( Woo2Odoo_Test_Orders::is_skipped( wc_get_order( $oid ) ) ) {
+				\WP_CLI::log( sprintf( '  – #%d omitido (pedido de prueba, lista Test/Debug)', $oid ) );
+				$skipped++;
 			} else {
 				$error = $order->get_meta( '_woo2odoo_sync_error' );
 				\WP_CLI::log( sprintf( '  ✗ #%d falló%s', $oid, $error ? ": $error" : '' ) );
@@ -134,7 +138,7 @@ class Woo2Odoo_CLI {
 		}
 
 		$bar->finish();
-		\WP_CLI::success( sprintf( '%d sincronizados, %d fallidos.', $synced, $failed ) );
+		\WP_CLI::success( sprintf( '%d sincronizados, %d fallidos, %d omitidos (prueba).', $synced, $failed, $skipped ) );
 	}
 
 	/**
@@ -312,6 +316,8 @@ class Woo2Odoo_CLI {
 			$order = wc_get_order( $order_id ); // reload to get updated meta
 			$so_id = $order->get_meta( '_odoo_sale_order_id' );
 			\WP_CLI::success( sprintf( '#%d sincronizado. SO Odoo ID: %s', $order_id, $so_id ?: '(ver log)' ) );
+		} elseif ( Woo2Odoo_Test_Orders::is_skipped( wc_get_order( $order_id ) ) ) {
+			\WP_CLI::warning( sprintf( '#%d omitido a propósito: coincide con la lista Test/Debug (no se envía a Odoo).', $order_id ) );
 		} else {
 			$order = wc_get_order( $order_id );
 			$error = $order->get_meta( '_woo2odoo_sync_error' );
