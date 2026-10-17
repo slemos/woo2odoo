@@ -209,4 +209,63 @@ class WPUnit_Test_Orders_Skip_Test extends TestCase {
 
 		$this->assertFalse( $this->manager->refund_sync( $order->get_id(), 999999 ) );
 	}
+
+	// ── Automatic hooks: decided BEFORE the Odoo client is even built ─────────
+	// Woo2Odoo_Client's constructor talks to Odoo and throws when it is down, so the
+	// guard inside order_sync() is unreachable in that case. These call the real hook
+	// callbacks (which would build the real client) and must not throw or contact Odoo.
+
+	public function test_maybe_skip_marks_a_matching_order_and_ignores_others(): void {
+		$this->settings();
+		$match = $this->order( 'qa@example.com' );
+		$other = $this->order( 'real.customer@gmail.com' );
+
+		$this->assertTrue( Woo2Odoo_Test_Orders::maybe_skip( $match->get_id(), 'orders' ) );
+		$this->assertTrue( Woo2Odoo_Test_Orders::is_skipped( \wc_get_order( $match->get_id() ) ) );
+
+		$this->assertFalse( Woo2Odoo_Test_Orders::maybe_skip( $other->get_id(), 'orders' ) );
+		$this->assertFalse( Woo2Odoo_Test_Orders::is_skipped( \wc_get_order( $other->get_id() ) ) );
+	}
+
+	public function test_auto_sync_hook_skips_without_building_the_odoo_client(): void {
+		$this->settings();
+		$order = $this->order( 'qa+hook@example.com' );
+
+		Woo2Odoo_Plugin::instance()->auto_sync_order( $order->get_id() );
+
+		$fresh = \wc_get_order( $order->get_id() );
+		$this->assertTrue( Woo2Odoo_Test_Orders::is_skipped( $fresh ) );
+		$this->assertSame( '', (string) $fresh->get_meta( '_woo2odoo_sync_error' ) );
+	}
+
+	public function test_auto_refund_hook_skips_without_building_the_odoo_client(): void {
+		$this->settings();
+		$order = $this->order( 'qa@example.com' );
+
+		Woo2Odoo_Plugin::instance()->auto_refund_order( $order->get_id(), 999999 );
+
+		$notes = array_filter(
+			\wc_get_order_notes( array( 'order_id' => $order->get_id() ) ),
+			static function ( $n ) {
+				return false !== strpos( $n->content, 'reembolso omitido' );
+			}
+		);
+		$this->assertCount( 1, $notes );
+	}
+
+	public function test_auto_cancel_hook_ignores_a_skipped_unexported_order(): void {
+		$this->settings();
+		$order = $this->order( 'qa@example.com' );
+		Woo2Odoo_Test_Orders::maybe_skip( $order->get_id(), 'orders' );
+
+		$this->assertTrue( Woo2Odoo_Test_Orders::is_skipped_and_unexported( $order->get_id() ) );
+		Woo2Odoo_Plugin::instance()->auto_cancel_order( $order->get_id() ); // must not throw nor contact Odoo
+		$this->assertTrue( Woo2Odoo_Test_Orders::is_skipped( \wc_get_order( $order->get_id() ) ) );
+	}
+
+	public function test_a_skipped_order_that_is_already_in_odoo_is_not_treated_as_unexported(): void {
+		$this->settings();
+		$order = $this->order( 'qa@example.com', array( '_woo2odoo_sync_status' => 'skipped', '_odoo_sale_order_id' => 77 ) );
+		$this->assertFalse( Woo2Odoo_Test_Orders::is_skipped_and_unexported( $order->get_id() ) );
+	}
 }

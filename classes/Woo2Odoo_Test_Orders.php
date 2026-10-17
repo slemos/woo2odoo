@@ -26,7 +26,11 @@
 
 namespace Woo2Odoo;
 
+use Throwable;
 use WC_Order;
+
+use function wc_get_logger;
+use function wc_get_order;
 
 class Woo2Odoo_Test_Orders {
 
@@ -271,6 +275,53 @@ class Woo2Odoo_Test_Orders {
 			$order->add_order_note( sprintf( 'Woo2Odoo: pedido omitido, no se envía a Odoo (coincide con la lista de pruebas: %s).', $pattern ) );
 		}
 		$order->save();
+	}
+
+	/**
+	 * One-call guard for the sync entry points: decide, record and report.
+	 *
+	 * IMPORTANT: call it BEFORE `new Woo2Odoo_Order_Manager()` in the automatic paths.
+	 * The manager builds a Woo2Odoo_Client, whose constructor already talks to Odoo and
+	 * throws when Odoo is down or misconfigured, so a guard placed inside order_sync()
+	 * would never be reached in that case.
+	 *
+	 * Fails open: if the skip layer itself errors, the order syncs as it always did
+	 * (a real customer must never be dropped because of a test-only feature).
+	 *
+	 * @param int    $order_id Order ID.
+	 * @param string $context  'orders' or 'refunds'.
+	 * @return bool True when the operation was skipped and the caller must stop.
+	 */
+	public static function maybe_skip( int $order_id, string $context ): bool {
+		try {
+			$order = wc_get_order( $order_id );
+			$match = self::should_skip( $order, $context );
+			if ( '' === $match ) {
+				return false;
+			}
+			self::mark_skipped( $order, $context, $match );
+			wc_get_logger()->info(
+				sprintf( 'Woo2Odoo %s sync skipped: customer email matches the Test/Debug list', $context ),
+				array(
+					'source'   => 'woo2odoo',
+					'order_id' => $order_id,
+				)
+			);
+			return true;
+		} catch ( Throwable $e ) {
+			error_log( 'woo2odoo test-order skip failed for order ' . $order_id . ' (syncing normally): ' . $e->getMessage() );
+			return false;
+		}
+	}
+
+	/**
+	 * Cancelling an order that was skipped (never exported) has nothing to cancel in Odoo.
+	 *
+	 * @param int $order_id Order ID.
+	 */
+	public static function is_skipped_and_unexported( int $order_id ): bool {
+		$order = wc_get_order( $order_id );
+		return self::is_skipped( $order ) && (int) $order->get_meta( '_odoo_sale_order_id' ) <= 0;
 	}
 
 	/** Does this order currently carry the `skipped` sync status? */

@@ -103,14 +103,12 @@ class Woo2Odoo_Order_Manager {
 	public function order_sync( $order_id ) {
 		$this->last_customer_error_detail = '';
 
-		// Test / Debug skip-list: decided BEFORE touching Odoo (no auth, no calls).
-		// Returns false but leaves sync status `skipped`; callers that report
-		// results check Woo2Odoo_Test_Orders::is_skipped() to word it correctly.
-		$skip_order = wc_get_order( $order_id );
-		$skip_match = Woo2Odoo_Test_Orders::should_skip( $skip_order, 'orders' );
-		if ( '' !== $skip_match ) {
-			Woo2Odoo_Test_Orders::mark_skipped( $skip_order, 'orders', $skip_match );
-			$this->client->log_info( 'Order sync skipped: customer email matches the Test/Debug list', array( 'order_id' => $order_id ) );
+		// Test / Debug skip-list, authoritative layer for every entry point (CLI, admin,
+		// re-sync button...). The automatic hooks already ran the same check before even
+		// building the Odoo client (see Woo2Odoo_Plugin::auto_sync_order). Returns false but
+		// leaves sync status `skipped`; callers that report results check
+		// Woo2Odoo_Test_Orders::is_skipped() to word it correctly.
+		if ( Woo2Odoo_Test_Orders::maybe_skip( (int) $order_id, 'orders' ) ) {
 			return false;
 		}
 
@@ -1496,12 +1494,7 @@ class Woo2Odoo_Order_Manager {
 	 */
 	public function refund_sync( $order_id, $refund_id ) {
 		// Test / Debug skip-list: no credit note for orders that were never sent to Odoo.
-		$skip_order = wc_get_order( $order_id );
-		$skip_match = Woo2Odoo_Test_Orders::should_skip( $skip_order, 'refunds' );
-		if ( '' !== $skip_match ) {
-			Woo2Odoo_Test_Orders::mark_skipped( $skip_order, 'refunds', $skip_match );
-			$skip_order->save();
-			$this->client->log_info( 'Refund sync skipped: customer email matches the Test/Debug list', array( 'order_id' => $order_id, 'refund_id' => $refund_id ) );
+		if ( Woo2Odoo_Test_Orders::maybe_skip( (int) $order_id, 'refunds' ) ) {
 			return false;
 		}
 
