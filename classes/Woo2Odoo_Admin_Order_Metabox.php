@@ -179,6 +179,16 @@ class Woo2Odoo_Admin_Order_Metabox {
 		// ── Early exit when nothing synced ────────────────────────────────────
 
 		if ( ! $so_id && ! $invoice_id && ! $payment_id ) {
+			if ( Woo2Odoo_Test_Orders::is_skipped( $order ) ) {
+				// Test / Debug skip-list: say so explicitly instead of a generic "not synced".
+				echo '<p class="woo2odoo-none">' . esc_html(
+					sprintf(
+						'Omitido a propósito (pedido de prueba, coincide con "%s"). No se envía a Odoo.',
+						(string) $order->get_meta( Woo2Odoo_Test_Orders::META_REASON )
+					)
+				) . '</p>';
+				return;
+			}
 			echo '<p class="woo2odoo-none">No sincronizado con Odoo.</p>';
 			$refresh_url = esc_url( add_query_arg( 'woo2odoo_refresh', '1' ) );
 			echo '<a href="' . $refresh_url . '" class="woo2odoo-refresh">&#10227; Refrescar desde Odoo</a>';
@@ -276,6 +286,7 @@ class Woo2Odoo_Admin_Order_Metabox {
 				'synced'  => '#46b450',
 				'pending' => '#ffb900',
 				'failed'  => '#dc3232',
+				'skipped' => '#787c82',
 			);
 			$wc_badge = self::badge( $sync_status, $wc_colors );
 			if ( $sync_date ) {

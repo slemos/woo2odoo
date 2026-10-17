@@ -102,6 +102,16 @@ class Woo2Odoo_Order_Manager {
 
 	public function order_sync( $order_id ) {
 		$this->last_customer_error_detail = '';
+
+		// Test / Debug skip-list, authoritative layer for every entry point (CLI, admin,
+		// re-sync button...). The automatic hooks already ran the same check before even
+		// building the Odoo client (see Woo2Odoo_Plugin::auto_sync_order). Returns false but
+		// leaves sync status `skipped`; callers that report results check
+		// Woo2Odoo_Test_Orders::is_skipped() to word it correctly.
+		if ( Woo2Odoo_Test_Orders::maybe_skip( (int) $order_id, 'orders' ) ) {
+			return false;
+		}
+
 		if ( !$this->client->authenticate() ) {
 			$this->set_sync_status( (int) $order_id, 'failed', 'No se pudo autenticar con Odoo — verifica la API key en la configuración del plugin.' );
 			return false;
@@ -1483,6 +1493,11 @@ class Woo2Odoo_Order_Manager {
 	 * @return int|false Credit note Odoo ID or false on failure.
 	 */
 	public function refund_sync( $order_id, $refund_id ) {
+		// Test / Debug skip-list: no credit note for orders that were never sent to Odoo.
+		if ( Woo2Odoo_Test_Orders::maybe_skip( (int) $order_id, 'refunds' ) ) {
+			return false;
+		}
+
 		if ( ! $this->client->authenticate() ) {
 			return false;
 		}

@@ -109,6 +109,7 @@ class Woo2Odoo_Sync_Status_Tab {
 			'pending' => __( 'Pendientes', 'woo2odoo-plugin' ),
 			'never'   => __( 'Sin intentar', 'woo2odoo-plugin' ),
 			'synced'  => __( 'Sincronizados', 'woo2odoo-plugin' ),
+			'skipped' => __( 'Omitidos (prueba)', 'woo2odoo-plugin' ),
 			'all'     => __( 'Todos', 'woo2odoo-plugin' ),
 		);
 	}
@@ -125,6 +126,7 @@ class Woo2Odoo_Sync_Status_Tab {
 			case 'failed':
 			case 'pending':
 			case 'synced':
+			case 'skipped':
 				return array( array( 'key' => '_woo2odoo_sync_status', 'value' => $filter ) );
 			default: // 'all'
 				return array();
@@ -248,6 +250,23 @@ class Woo2Odoo_Sync_Status_Tab {
 			'woo2odoo_plugin_switch_settings_tab'
 		);
 		self::print_styles();
+		if ( Woo2Odoo_Test_Orders::is_active() ) {
+			$test_cfg = Woo2Odoo_Test_Orders::settings();
+			echo '<div class="notice notice-warning inline"><p><strong>' . esc_html__( 'Modo Test/Debug activo:', 'woo2odoo-plugin' ) . '</strong> '
+				. esc_html(
+					sprintf(
+						/* translators: %d: number of patterns in the test list */
+						_n(
+							'los pedidos y reembolsos que coincidan con %d patrón de correo NO se envían a Odoo.',
+							'los pedidos y reembolsos que coincidan con %d patrones de correo NO se envían a Odoo.',
+							count( $test_cfg['patterns'] ),
+							'woo2odoo-plugin'
+						),
+						count( $test_cfg['patterns'] )
+					)
+				)
+				. ' <a href="' . esc_url( admin_url( 'options-general.php?page=woo2odoo-plugin&tab=testing' ) ) . '">' . esc_html__( 'Configurar', 'woo2odoo-plugin' ) . '</a></p></div>';
+		}
 		?>
 		<div id="woo2odoo-sync-tab" data-nonce="<?php echo esc_attr( $nonce ); ?>">
 			<h2><?php esc_html_e( 'Estado de sincronización con Odoo', 'woo2odoo-plugin' ); ?></h2>
@@ -373,6 +392,7 @@ class Woo2Odoo_Sync_Status_Tab {
 			'pending' => 'pending',
 			'failed'  => 'failed',
 			'never'   => 'sin intentar',
+			'skipped' => 'omitido (prueba)',
 		);
 		$label = isset( $labels[ $status ] ) ? $labels[ $status ] : $status;
 		$html  = '<span class="woo2odoo-badge b-' . esc_attr( $status ) . '">' . esc_html( $label ) . '</span>';
@@ -404,6 +424,7 @@ class Woo2Odoo_Sync_Status_Tab {
 			#woo2odoo-sync-tab .b-pending { background:#ffb900; color:#3c2c00; }
 			#woo2odoo-sync-tab .b-failed { background:#dc3232; }
 			#woo2odoo-sync-tab .b-never { background:#999; }
+			#woo2odoo-sync-tab .b-skipped { background:#787c82; }
 			#woo2odoo-sync-tab .woo2odoo-err { color:#b32d2e; font-size:11px; margin-top:3px; max-width:260px; }
 			#woo2odoo-sync-tab .woo2odoo-pagination { margin:14px 0; display:flex; gap:4px; flex-wrap:wrap; }
 			#woo2odoo-sync-tab .woo2odoo-pagination .page { padding:3px 9px; border:1px solid #c3c4c7; border-radius:3px; text-decoration:none; font-size:13px; background:#fff; }
@@ -435,7 +456,7 @@ class Woo2Odoo_Sync_Status_Tab {
 			}
 
 			function badge( status ) {
-				var label = status === 'never' ? 'sin intentar' : status;
+				var label = status === 'never' ? 'sin intentar' : ( status === 'skipped' ? 'omitido (prueba)' : status );
 				return '<span class="woo2odoo-badge b-' + status + '">' + label + '</span>';
 			}
 

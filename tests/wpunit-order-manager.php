@@ -379,29 +379,36 @@ class WPUnit_Order_Manager_Test extends TestCase {
 			'_woo2odoo_invoice_id' => '456',
 		], $notes );
 
+		// Stateful Odoo double: cancel_sync verifies by re-reading `state`, never by the
+		// return value of execute(), so the mock must actually change state.
+		$executed = [];
+		$states   = [ 'sale.order' => 'sale', 'account.move' => 'draft' ];
 		$this->mock_client->method( 'authenticate' )->willReturn( true );
+		$this->mock_client->method( 'create_record' )->willReturn( 999 );
 		$this->mock_client->method( 'search_read' )->willReturnCallback(
-			function ( $model ) {
-				if ( 'sale.order' === $model ) {
-					return (object) [ 'id' => 123, 'name' => 'S00123', 'state' => 'sale' ];
-				}
-				if ( 'account.move' === $model ) {
-					return (object) [ 'id' => 456, 'name' => 'INV456', 'state' => 'draft' ];
-				}
-				return null;
+			function ( $model ) use ( &$states ) {
+				$names = [ 'sale.order' => 'S00123', 'account.move' => 'INV456' ];
+				$ids   = [ 'sale.order' => 123, 'account.move' => 456 ];
+				return isset( $states[ $model ] )
+					? (object) [ 'id' => $ids[ $model ], 'name' => $names[ $model ], 'state' => $states[ $model ] ]
+					: null;
 			}
 		);
-
-		$executed = [];
 		$this->mock_client->method( 'execute' )->willReturnCallback(
-			function ( $model, $method ) use ( &$executed ) {
+			function ( $model, $method ) use ( &$executed, &$states ) {
 				$executed[] = "{$model}::{$method}";
+				if ( 'sale.order.cancel' === $model && 'action_cancel' === $method ) {
+					$states['sale.order'] = 'cancel';
+				}
+				if ( 'account.move' === $model && 'button_cancel' === $method ) {
+					$states['account.move'] = 'cancel';
+				}
 				return true;
 			}
 		);
 
 		$this->assertTrue( $this->manager->cancel_sync( 503 ) );
-		$this->assertContains( 'sale.order::action_cancel', $executed );
+		$this->assertContains( 'sale.order.cancel::action_cancel', $executed );
 		$this->assertContains( 'account.move::button_cancel', $executed );
 		$joined = implode( "\n", $notes );
 		$this->assertStringContainsString( 'cancelado en Odoo', $joined );
@@ -414,31 +421,33 @@ class WPUnit_Order_Manager_Test extends TestCase {
 			'_woo2odoo_invoice_id' => '456',
 		], $notes );
 
+		$executed = [];
+		$states   = [ 'sale.order' => 'sale', 'account.move' => 'posted' ];
 		$this->mock_client->method( 'authenticate' )->willReturn( true );
+		$this->mock_client->method( 'create_record' )->willReturn( 999 );
 		$this->mock_client->method( 'search_read' )->willReturnCallback(
-			function ( $model ) {
-				if ( 'sale.order' === $model ) {
-					return (object) [ 'id' => 123, 'name' => 'S00123', 'state' => 'sale' ];
-				}
-				if ( 'account.move' === $model ) {
-					return (object) [ 'id' => 456, 'name' => 'INV456', 'state' => 'posted' ];
-				}
-				return null;
+			function ( $model ) use ( &$states ) {
+				$names = [ 'sale.order' => 'S00123', 'account.move' => 'INV456' ];
+				$ids   = [ 'sale.order' => 123, 'account.move' => 456 ];
+				return isset( $states[ $model ] )
+					? (object) [ 'id' => $ids[ $model ], 'name' => $names[ $model ], 'state' => $states[ $model ] ]
+					: null;
 			}
 		);
-
-		$executed = [];
 		$this->mock_client->method( 'execute' )->willReturnCallback(
-			function ( $model, $method ) use ( &$executed ) {
+			function ( $model, $method ) use ( &$executed, &$states ) {
 				$executed[] = "{$model}::{$method}";
 				// A posted account.move must NEVER receive button_cancel (or any write).
 				$this->assertNotSame( 'account.move', $model, "El invoice contabilizado no debe recibir la llamada '{$method}'." );
+				if ( 'sale.order.cancel' === $model && 'action_cancel' === $method ) {
+					$states['sale.order'] = 'cancel';
+				}
 				return true;
 			}
 		);
 
 		$this->assertTrue( $this->manager->cancel_sync( 504 ), 'La cancelación del SO igual debe reportarse como éxito.' );
-		$this->assertContains( 'sale.order::action_cancel', $executed );
+		$this->assertContains( 'sale.order.cancel::action_cancel', $executed );
 		$joined = implode( "\n", $notes );
 		$this->assertStringContainsString( 'NO se canceló automáticamente', $joined );
 		$this->assertStringContainsString( 'revisar manualmente', strtolower( $joined ) );

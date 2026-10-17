@@ -360,6 +360,13 @@ final class Woo2Odoo_Plugin_Admin {
 					'order_id' => $order_id,
 				)
 			);
+		} elseif ( Woo2Odoo_Test_Orders::is_skipped( wc_get_order( $order_id ) ) ) {
+			wc_get_logger()->info(
+				'Order Sync Skipped (Test/Debug list)',
+				array(
+					'order_id' => $order_id,
+				)
+			);
 		} else {
 			wc_get_logger()->error(
 				'Order Sync Failed',

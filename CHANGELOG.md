@@ -11,6 +11,15 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
 
 ## [Unreleased]
 
+### Added
+- **Pestaña "Test / Debug" con lista de correos de prueba que no se sincronizan con Odoo.** Los pedidos y reembolsos cuyo correo (de facturación o el de la cuenta del cliente) coincide con la lista no crean cotización, factura, pago ni nota de crédito en Odoo, para poder probar compras reales en producción sin ensuciar la contabilidad. Todo es configurable desde el admin y se guarda en una opción de WordPress (`Woo2Odoo-plugin-testing`):
+  - Interruptor general (apagado por defecto), lista de correos exactos o con comodines `*` / `?` (por ejemplo `qa+*@example.com`), un interruptor aparte para pedidos y para reembolsos, y nota en el pedido opcional.
+  - Seguridad: solo afecta a pedidos que **nunca** se exportaron a Odoo (un pedido ya sincronizado sigue su flujo normal); se rechazan al guardar los patrones demasiado amplios (`*@gmail.com`, comodines en el dominio).
+  - No es silencioso: el pedido queda con estado `skipped` ("omitido (prueba)"), con filtro propio en la pestaña "Estado Odoo", mensaje en el metabox del pedido, aviso en la pestaña mientras el modo esté activo, y se informa como omitido (no como fallo) en WP-CLI.
+  - Dos capas. Los hooks automáticos (`on-hold`/`processing`, job en segundo plano, reembolsos, cancelaciones) deciden **antes de crear el cliente de Odoo**, por lo que un pedido de prueba se omite incluso con Odoo caído o mal configurado (el constructor de `Woo2Odoo_Client` ya conecta con Odoo y lanza excepción si falla). La guarda de `order_sync()` / `refund_sync()` es la capa de respaldo y cubre WP-CLI, las acciones de admin y el botón de re-sincronizar; en esas rutas manuales el cliente se crea primero y luego se omite. Si la propia capa de omisión fallara, el pedido se sincroniza con normalidad (falla abierto).
+  - Filtro `woo2odoo_skip_test_order` para extender la decisión.
+  - Tests: `phpunit-pure.xml` (30 tests sin WordPress) y `tests/wpunit-test-orders-skip.php` (integración).
+
 ## [1.6.1] - 2026-09-16
 
 ### Fixed

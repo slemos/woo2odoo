@@ -127,6 +127,10 @@ final class Woo2Odoo_Plugin {
 	 * @param int $order_id WooCommerce order ID.
 	 */
 	public function auto_sync_order( int $order_id ): void {
+		// Test / Debug skip-list: decided before the Odoo client exists (works with Odoo down).
+		if ( Woo2Odoo_Test_Orders::maybe_skip( $order_id, 'orders' ) ) {
+			return;
+		}
 		try {
 			$order_manager = new Woo2Odoo_Order_Manager();
 			$order_manager->order_sync( $order_id );
@@ -143,6 +147,9 @@ final class Woo2Odoo_Plugin {
 	 * @param int $refund_id WooCommerce refund post ID.
 	 */
 	public function auto_refund_order( int $order_id, int $refund_id ): void {
+		if ( Woo2Odoo_Test_Orders::maybe_skip( $order_id, 'refunds' ) ) {
+			return;
+		}
 		try {
 			$order_manager = new Woo2Odoo_Order_Manager();
 			$order_manager->refund_sync( $order_id, $refund_id );
@@ -157,6 +164,10 @@ final class Woo2Odoo_Plugin {
 	 * @param int $order_id WooCommerce order ID.
 	 */
 	public function auto_cancel_order( int $order_id ): void {
+		// A skipped (never exported) test order has nothing to cancel in Odoo.
+		if ( Woo2Odoo_Test_Orders::is_skipped_and_unexported( $order_id ) ) {
+			return;
+		}
 		try {
 			$order_manager = new Woo2Odoo_Order_Manager();
 			$order_manager->cancel_sync( $order_id );
