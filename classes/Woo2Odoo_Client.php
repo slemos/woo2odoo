@@ -42,10 +42,133 @@ class Woo2Odoo_Client {
 	private $last_error = '';
 
 	/**
-	 * Constructor
+	 * First fake id handed out in shadow mode. Far above any real record id, so a fake
+	 * id can be told apart from a real one in logs and is never sent back to Odoo.
 	 */
-	public function __construct() {
-		$this->client = Woo2Odoo_ClientFactory::instance()->get_client();
+	public const SHADOW_FAKE_ID_BASE = 900000000;
+
+	/**
+	 * Odoo methods that only read. In shadow mode these still reach Odoo; any other
+	 * method called through execute() is treated as a write and faked.
+	 */
+	public const READ_METHODS = array( 'read', 'search_read', 'search', 'search_count', 'name_search', 'name_get', 'fields_get', 'read_group', 'default_get', 'check_access_rights' );
+
+	/** @var bool Shadow mode: writes are logged and faked, reads hit Odoo. */
+	private $shadow = false;
+
+	/** @var int Number of fake ids handed out so far (shadow mode). */
+	private $shadow_seq = 0;
+
+	/** @var array<int,bool> Fake ids handed out (shadow mode). */
+	private $shadow_ids = array();
+
+	/** @var array<int,array> Recorded write calls (shadow mode). */
+	private $shadow_log = array();
+
+	/**
+	 * Constructor
+	 *
+	 * @param \winternet\odoo\JsonRpcClient|null $rpc    JSON-RPC client to use (tests); default from the factory.
+	 * @param bool|null                         $shadow Force shadow mode; null = settings/constant.
+	 */
+	public function __construct( $rpc = null, ?bool $shadow = null ) {
+		$this->client = $rpc ?? Woo2Odoo_ClientFactory::instance()->get_client();
+		$this->shadow = null === $shadow ? Woo2Odoo_Config::shadow_mode() : ( $shadow || Woo2Odoo_Config::shadow_mode() );
+	}
+
+	/**
+	 * Whether Odoo writes are faked (shadow mode).
+	 *
+	 * @return bool
+	 */
+	public function is_shadow_mode() {
+		return $this->shadow;
+	}
+
+	/**
+	 * Turn shadow mode on (or off, unless forced on by the setting/constant).
+	 *
+	 * @param bool $on Shadow mode wanted.
+	 */
+	public function set_shadow_mode( bool $on ): void {
+		$this->shadow = $on || Woo2Odoo_Config::shadow_mode();
+	}
+
+	/**
+	 * Write calls recorded in shadow mode, in call order.
+	 * Each entry: seq, op (create|write|execute), model, method, args, result.
+	 *
+	 * @return array<int,array>
+	 */
+	public function get_shadow_log(): array {
+		return $this->shadow_log;
+	}
+
+	/**
+	 * Record a faked write and log it to the WC logger (source woo2odoo-shadow).
+	 * Payloads are model values only; connection credentials are never part of them.
+	 *
+	 * @param string $op     create|write|execute.
+	 * @param string $model  Odoo model.
+	 * @param string $method Odoo method.
+	 * @param mixed  $args   Values/arguments of the call.
+	 * @param mixed  $result Fake result returned to the caller.
+	 */
+	private function shadow_record( string $op, string $model, string $method, $args, $result ): void {
+		$entry              = array(
+			'seq'    => count( $this->shadow_log ) + 1,
+			'op'     => $op,
+			'model'  => $model,
+			'method' => $method,
+			'args'   => $args,
+			'result' => $result,
+		);
+		$this->shadow_log[] = $entry;
+		if ( function_exists( 'wc_get_logger' ) ) {
+			wc_get_logger()->info(
+				sprintf( 'SHADOW %s %s.%s', $op, $model, $method ),
+				array(
+					'source'  => 'woo2odoo-shadow',
+					'payload' => wp_json_encode( $entry ),
+				)
+			);
+		}
+	}
+
+	/**
+	 * Next deterministic fake id (shadow mode): 900000001, 900000002, ...
+	 *
+	 * @return int
+	 */
+	private function shadow_next_id(): int {
+		++$this->shadow_seq;
+		$id                      = self::SHADOW_FAKE_ID_BASE + $this->shadow_seq;
+		$this->shadow_ids[ $id ] = true;
+		return $id;
+	}
+
+	/**
+	 * Whether a value (domain, ids, args...) references a fake id handed out in this run.
+	 * Such reads are answered locally: Odoo has no such record.
+	 *
+	 * @param mixed $value Anything.
+	 * @return bool
+	 */
+	private function references_fake_id( $value ): bool {
+		if ( empty( $this->shadow_ids ) ) {
+			return false;
+		}
+		if ( is_int( $value ) || ( is_string( $value ) && ctype_digit( $value ) ) ) {
+			return isset( $this->shadow_ids[ (int) $value ] );
+		}
+		if ( is_array( $value ) || is_object( $value ) ) {
+			foreach ( (array) $value as $item ) {
+				if ( $this->references_fake_id( $item ) ) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -83,6 +206,11 @@ class Woo2Odoo_Client {
 	 *   - `expandFields` : Expand a field with an array of record IDs into a new property called `_expanded`. Eg. `['invoice_line_ids' => ['model' => 'account.move.line']]�
 	 */
 	public function search_read( $model, $where = array(), $fields = array(), $offset = null, $limit = null, $order = null, $options = array() ) {
+
+		if ( $this->shadow && $this->references_fake_id( $where ) ) {
+			// Shadow mode: the record only exists in this run, Odoo cannot know it.
+			return empty( $options['single'] ) ? array() : null;
+		}
 
 		if ( !$this->authenticate() ) {
 			return false;
@@ -161,6 +289,19 @@ class Woo2Odoo_Client {
 	 * @return array|false Updated record or false if error.
 	 */
 	public function update_record( $model, $id, $data ) {
+		if ( $this->shadow ) {
+			$this->shadow_record(
+				'write',
+				(string) $model,
+				'write',
+				array(
+					'id'     => $id,
+					'values' => $data,
+				),
+				true
+			);
+			return true;
+		}
 		if ( !$this->authenticate() ) {
 			return false;
 		}
@@ -180,6 +321,11 @@ class Woo2Odoo_Client {
 	 * @return array|bool
 	 */
 	public function create_record( $model, $data ) {
+		if ( $this->shadow ) {
+			$fake_id = $this->shadow_next_id();
+			$this->shadow_record( 'create', (string) $model, 'create', $data, $fake_id );
+			return $fake_id;
+		}
 		if ( !$this->authenticate() ) {
 			return false;
 		}
@@ -192,6 +338,15 @@ class Woo2Odoo_Client {
 	}
 
 	public function execute( $model, $method, $args ) {
+		if ( $this->shadow ) {
+			if ( ! in_array( $method, self::READ_METHODS, true ) ) {
+				$this->shadow_record( 'execute', (string) $model, (string) $method, $args, true );
+				return true;
+			}
+			if ( $this->references_fake_id( $args ) ) {
+				return array();
+			}
+		}
 		if ( !$this->authenticate() ) {
 			return false;
 		}

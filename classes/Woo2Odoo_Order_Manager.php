@@ -78,11 +78,52 @@ class Woo2Odoo_Order_Manager {
 		),
 	);
 
-	public function __construct( ?Woo2Odoo_Client $client = null ) {
+	/** Per-order lock that keeps two requests from syncing the same order at once. */
+	private Woo2Odoo_Sync_Lock $lock;
+
+	/**
+	 * Shadow runs only: ignore an existing sale.order with the same origin and go
+	 * through the creation path, so the full payload can be inspected/diffed.
+	 * Has no effect unless the client is in shadow mode.
+	 *
+	 * @var bool
+	 */
+	public $shadow_ignore_existing = false;
+
+	public function __construct( ?Woo2Odoo_Client $client = null, ?Woo2Odoo_Sync_Lock $lock = null ) {
 		$this->client = $client ?? new Woo2Odoo_Client();
+		$this->lock   = $lock ?? new Woo2Odoo_Sync_Lock();
+	}
+
+	/**
+	 * Whether Odoo writes are being faked (shadow mode). WC must not be touched either.
+	 *
+	 * @return bool
+	 */
+	private function is_shadow(): bool {
+		return true === $this->client->is_shadow_mode();
+	}
+
+	/**
+	 * Load a WC order. In shadow mode the order is loaded as a Woo2Odoo_Shadow_Order,
+	 * whose save() and add_order_note() never persist anything.
+	 *
+	 * @param int|string $order_id WooCommerce order id.
+	 * @return \WC_Order|false
+	 */
+	private function load_order( $order_id ) {
+		$order = wc_get_order( $order_id );
+		if ( $order && $this->is_shadow() && ! $order instanceof Woo2Odoo_Shadow_Order ) {
+			return Woo2Odoo_Shadow_Order::from_order( $order );
+		}
+		return $order;
 	}
 
 	private function set_sync_status( int $order_id, string $status, string $error = '', ?\WC_Order $order = null ): void {
+		if ( $this->is_shadow() ) {
+			// Shadow runs never change the real order's sync state.
+			return;
+		}
 		if ( ! $order ) {
 			$order = wc_get_order( $order_id );
 		}
@@ -103,22 +144,57 @@ class Woo2Odoo_Order_Manager {
 	public function order_sync( $order_id ) {
 		$this->last_customer_error_detail = '';
 
-		// Test / Debug skip-list, authoritative layer for every entry point (CLI, admin,
-		// re-sync button...). The automatic hooks already ran the same check before even
-		// building the Odoo client (see Woo2Odoo_Plugin::auto_sync_order). Returns false but
-		// leaves sync status `skipped`; callers that report results check
-		// Woo2Odoo_Test_Orders::is_skipped() to word it correctly.
-		if ( Woo2Odoo_Test_Orders::maybe_skip( (int) $order_id, 'orders' ) ) {
+		// Master switch (setting export_order / WOO2ODOO_SYNC_DISABLED). Authoritative for
+		// every entry point; shadow runs are allowed because they never write to Odoo.
+		if ( ! $this->is_shadow() && ! Woo2Odoo_Config::sync_enabled() ) {
+			$this->client->log_info( 'Order sync skipped: sync disabled by the master switch', array( 'order_id' => $order_id ) );
 			return false;
 		}
 
+		if ( $this->is_shadow() ) {
+			// Same decision as the skip-list, but without marking the real order.
+			$order = wc_get_order( $order_id );
+			if ( $order && '' !== Woo2Odoo_Test_Orders::should_skip( $order, 'orders' ) ) {
+				$this->client->log_info( 'Shadow sync: order matches the Test/Debug skip-list', array( 'order_id' => $order_id ) );
+				return false;
+			}
+		} elseif ( Woo2Odoo_Test_Orders::maybe_skip( (int) $order_id, 'orders' ) ) {
+			// Test / Debug skip-list, authoritative layer for every entry point (CLI, admin,
+			// re-sync button...). The automatic hooks already ran the same check before even
+			// building the Odoo client (see Woo2Odoo_Plugin::auto_sync_order). Returns false but
+			// leaves sync status `skipped`; callers that report results check
+			// Woo2Odoo_Test_Orders::is_skipped() to word it correctly.
+			return false;
+		}
+
+		// Per-order lock: a gateway webhook and the customer's return page can fire the
+		// status hooks for the same order concurrently; only one of them may sync.
+		$lock_name = 'order_' . (int) $order_id;
+		if ( ! $this->lock->acquire( $lock_name ) ) {
+			$this->client->log_info( 'Order sync skipped: another sync of this order is in progress', array( 'order_id' => $order_id ) );
+			return false;
+		}
+		try {
+			return $this->do_order_sync( $order_id );
+		} finally {
+			$this->lock->release( $lock_name );
+		}
+	}
+
+	/**
+	 * Body of order_sync(), run while holding the per-order lock.
+	 *
+	 * @param int $order_id WooCommerce order id.
+	 * @return bool
+	 */
+	private function do_order_sync( $order_id ) {
 		if ( !$this->client->authenticate() ) {
 			$this->set_sync_status( (int) $order_id, 'failed', 'No se pudo autenticar con Odoo — verifica la API key en la configuración del plugin.' );
 			return false;
 		}
 
 		try {
-			$order = wc_get_order( $order_id );
+			$order = $this->load_order( $order_id );
 			if ( !$order ) {
 				$this->client->log_warning( 'Odoo order_sync failed: Order not found', array( 'order_id' => $order_id ) );
 				return false;
@@ -153,27 +229,34 @@ class Woo2Odoo_Order_Manager {
 				$this->set_sync_status( (int) $order_id, 'failed', $msg, $order );
 				return false;
 			}
-			// Search if the order exists in Odoo
-			$odoo_order = $this->client->search_read(
-				'sale.order',
-				array(
+			// Search if the order exists in Odoo. `origin` is prefix + WC order id; the
+			// match is exact, so a prefixed site never picks up another site's
+			// unprefixed sale order for the same numeric id (and vice versa).
+			$order_ref = Woo2Odoo_Config::order_ref( $order_id );
+			if ( $this->is_shadow() && $this->shadow_ignore_existing ) {
+				$odoo_order = null;
+			} else {
+				$odoo_order = $this->client->search_read(
+					'sale.order',
 					array(
-						'origin',
-						'=',
-						"$order_id",
+						array(
+							'origin',
+							'=',
+							$order_ref,
+						),
+						array(
+							'state',
+							'!=',
+							'cancel',
+						),
 					),
-					array(
-						'state',
-						'!=',
-						'cancel',
-					),
-				),
-				array( 'id', 'amount_total', 'state', 'invoice_status', 'invoice_ids' ),
-				null,
-				1,
-				null,
-				array( 'single' => true )
-			);
+					array( 'id', 'amount_total', 'state', 'invoice_status', 'invoice_ids' ),
+					null,
+					1,
+					null,
+					array( 'single' => true )
+				);
+			}
 			$is_new_order = false;
 			if ( $odoo_order ) {
 				// SO already exists in Odoo — link WC meta to it instead of blocking.
@@ -266,11 +349,33 @@ class Woo2Odoo_Order_Manager {
 					'partner_invoice_id'  => (int) $customer_data['invoice_id'],
 					'partner_shipping_id' => (int) $customer_data['shipping_id'],
 					'state'               => $odoo_order_state,
-					'note'                => __( 'Woo Order Id : ', 'woo2odoo-plugin' ) . $order_id,
+					'note'                => __( 'Woo Order Id : ', 'woo2odoo-plugin' ) . $order_ref,
 					'payment_term_id'     => 1,
-					'origin'              => $order_id,
+					// Unprefixed: keep sending the raw id exactly as v1.6.1 did.
+					'origin'              => '' === Woo2Odoo_Config::origin_prefix() ? $order_id : $order_ref,
 					'date_order'          => date_format( $order->get_date_created(), 'Y-m-d H:i:s' ),
 				);
+				if ( '' !== Woo2Odoo_Config::origin_prefix() ) {
+					$order_data['client_order_ref'] = $order_ref;
+				}
+				$salesperson = Woo2Odoo_Config::salesperson_user_id();
+				if ( $salesperson > 0 ) {
+					$order_data['user_id'] = $salesperson;
+				}
+				$team = Woo2Odoo_Config::sales_team_id();
+				if ( $team > 0 ) {
+					$order_data['team_id'] = $team;
+				}
+
+				/**
+				 * Filters the sale.order create values (user_id, team_id, warehouse_id,
+				 * pricelist_id, ... overrides).
+				 *
+				 * @param array     $order_data    Values passed to sale.order create.
+				 * @param \WC_Order $order         WooCommerce order.
+				 * @param array     $customer_data Resolved Odoo partner ids (id, invoice_id, shipping_id, ...).
+				 */
+				$order_data = (array) apply_filters( 'woo2odoo_sale_order_vals', $order_data, $order, $customer_data );
 
 				$odoo_order_id = $this->client->create_record( 'sale.order', $order_data );
 
@@ -318,6 +423,9 @@ class Woo2Odoo_Order_Manager {
 
 			// Add shipping line if applicable
 			$this->add_shipping_line( $order, $odoo_order_id, (int) $customer_data['id'] );
+
+			// Add fee lines (only when a fee product is configured; no-op otherwise)
+			$this->add_fee_lines( $order, $odoo_order_id, (int) $customer_data['id'] );
 
 			if ( ! empty( $order->get_customer_note() ) ) {
 				$order_line    = array(
@@ -395,14 +503,14 @@ class Woo2Odoo_Order_Manager {
 			return array( 'result' => 'error', 'msg' => 'Pedido WC no encontrado' );
 		}
 
-		// The Sale Order is matched by `origin` (= WC order id), which is the authoritative
+		// The Sale Order is matched by `origin` (= prefix + WC order id), which is the authoritative
 		// link in Odoo. This is deliberately NOT trusting any existing `_odoo_sale_order_id`
 		// meta: some testing-era orders were left with a WRONG (off-by-one) SO id, and
 		// re-linking by origin corrects it. Falls back to skipped when no SO exists.
 		$so = $this->client->search_read(
 			'sale.order',
 			array(
-				array( 'origin', '=', (string) $order_id ),
+				array( 'origin', '=', Woo2Odoo_Config::order_ref( $order_id ) ),
 				array( 'state', '!=', 'cancel' ),
 			),
 			array( 'id', 'name', 'state', 'invoice_ids', 'amount_total' ),
@@ -475,19 +583,26 @@ class Woo2Odoo_Order_Manager {
 			null, 1, null,
 			array( 'single' => true )
 		);
-		$so_name = $so ? $so->name : "WC#$wc_order_id";
+		$order_ref = Woo2Odoo_Config::order_ref( $wc_order_id );
+		$so_name   = $so ? $so->name : "WC#$order_ref";
 
 		// Get journal from plugin export settings (falls back to journal 9)
 		$export_settings = get_option( 'Woo2Odoo-plugin-export', array() );
 		$journal_id      = isset( $export_settings['invoiceJournal'] ) ? (int) $export_settings['invoiceJournal'] : 9;
 
-		// Determine document type: (33) Factura when _billing_invoice_type=1, else (39) Boleta
-		$wc_order        = wc_get_order( $wc_order_id );
-		$requires_factura        = $wc_order && $wc_order->get_meta( '_billing_invoice_type' ) === '1';
+		// Determine document type: (33) Factura when the order requires one, else (39) Boleta.
+		// Legacy fiscal source (default): always the ORDER meta _billing_invoice_type, as in
+		// v1.6.1. order_first: the same resolved fiscal data the partner was built from.
+		if ( Woo2Odoo_Config::FISCAL_SOURCE_LEGACY === Woo2Odoo_Config::fiscal_source() || ! isset( $customer_data['requires_factura'] ) ) {
+			$wc_order         = wc_get_order( $wc_order_id );
+			$requires_factura = $wc_order && $wc_order->get_meta( '_billing_invoice_type' ) === '1';
+		} else {
+			$requires_factura = (bool) $customer_data['requires_factura'];
+		}
 		$latam_document_type_id  = $requires_factura ? 1 : 5;
 
 		// Payment reference: WC order number (set before action_post so Odoo doesn't replace it with invoice name)
-		$payment_reference = 'WC#' . $wc_order_id;
+		$payment_reference = 'WC#' . $order_ref;
 
 		// Terms & conditions: use configured URL if set, otherwise clear Odoo's default
 		$terms_url = isset( $export_settings['invoice_terms_url'] ) ? trim( $export_settings['invoice_terms_url'] ) : '';
@@ -605,12 +720,15 @@ class Woo2Odoo_Order_Manager {
 		$retval = true;
 
 		if ( $order->get_shipping_total() > 0 ) {
+			// Shipping product: setting shipping_product_id, falling back to the historical id 1229.
+			$shipping_product_id = Woo2Odoo_Config::shipping_product_id();
+
 			// Search and validate if the shipping line already exists
 			$shipping_line = $this->client->search_read(
 				'sale.order.line',
 				array(
 					array( 'order_id', '=', $odoo_order ),
-					array( 'product_id', '=', 1229 ), // Hardcoded shipping product ID
+					array( 'product_id', '=', $shipping_product_id ),
 				),
 				array( 'id' ),
 				null,
@@ -619,16 +737,12 @@ class Woo2Odoo_Order_Manager {
 				array( 'single' => true )
 			);
 
-			// Send shipping net of IVA — Odoo applies 19% on its own.
-			// get_shipping_total() returns the IVA-inclusive amount from WC.
-			$shipping_net = round( $order->get_shipping_total() / 1.19, 2 );
-
 			$shipping_data = array(
 				'order_partner_id' => $customer_id,
 				'order_id'         => $odoo_order,
-				'product_id'       => 1229, // Hardcoded shipping product ID
+				'product_id'       => $shipping_product_id,
 				'product_uom_qty'  => 1,
-				'price_unit'       => $shipping_net,
+				'price_unit'       => $this->shipping_net_amount( $order ),
 			);
 
 			if ( $shipping_line ) {
@@ -643,6 +757,256 @@ class Woo2Odoo_Order_Manager {
 		}
 
 		return $retval;
+	}
+
+	/**
+	 * Net (tax-exclusive) shipping amount sent to Odoo, which applies IVA on its own.
+	 *
+	 * - WC reports a separate shipping tax (get_shipping_tax() > 0): the shipping
+	 *   total is already net, send it as is.
+	 * - No separate shipping tax (the B2C setup): the shipping total is the
+	 *   IVA-inclusive price, so divide by 1.19, exactly as v1.5.2+ did.
+	 *
+	 * @param \WC_Order $order WooCommerce order.
+	 * @return float
+	 */
+	public function shipping_net_amount( $order ): float {
+		$shipping_total = $order->get_shipping_total();
+		if ( (float) $order->get_shipping_tax() > 0 ) {
+			return round( (float) $shipping_total, 2 );
+		}
+		return round( $shipping_total / 1.19, 2 );
+	}
+
+	/**
+	 * Resolve the Odoo product id configured for fee lines (setting fee_product:
+	 * a numeric product id, or a SKU looked up as product.product default_code).
+	 *
+	 * @return int 0 when not configured or not found.
+	 */
+	private function resolve_fee_product_id(): int {
+		$configured = Woo2Odoo_Config::fee_product();
+		if ( '' === $configured ) {
+			return 0;
+		}
+		if ( ctype_digit( $configured ) ) {
+			return (int) $configured;
+		}
+		$product = $this->client->search_read(
+			'product.product',
+			array( array( 'default_code', '=', $configured ) ),
+			array( 'id' ),
+			null,
+			1,
+			null,
+			array( 'single' => true, 'cache' => true )
+		);
+		return $product ? (int) $product->id : 0;
+	}
+
+	/**
+	 * Send WC fee items (e.g. a payment-method surcharge) as lines of the
+	 * configured Odoo service product. No-op when no fee product is configured,
+	 * which is the historical behaviour (fees were ignored).
+	 *
+	 * Price = the fee's net total (WC_Order_Item_Fee::get_total() excludes tax);
+	 * IVA is applied when the fee itself carries tax, like product lines.
+	 *
+	 * @param \WC_Order $order       WooCommerce order.
+	 * @param int       $odoo_order  Odoo sale.order id.
+	 * @param int       $customer_id Odoo partner id.
+	 * @return bool True when every fee line was written (or nothing to do).
+	 */
+	public function add_fee_lines( $order, $odoo_order, $customer_id ) {
+		if ( '' === Woo2Odoo_Config::fee_product() ) {
+			return true;
+		}
+		$fees = $order->get_fees();
+		if ( empty( $fees ) ) {
+			return true;
+		}
+
+		$product_id = $this->resolve_fee_product_id();
+		if ( ! $product_id ) {
+			$msg = 'Producto de recargos (fee) configurado no encontrado en Odoo: ' . Woo2Odoo_Config::fee_product();
+			$this->client->log_error( 'Fee product not found in Odoo', array( 'fee_product' => Woo2Odoo_Config::fee_product() ) );
+			$order->add_order_note( "Woo2Odoo: {$msg}. Los recargos no se enviaron." );
+			return false;
+		}
+
+		$all_success = true;
+		foreach ( $fees as $fee ) {
+			$net = round( (float) $fee->get_total(), 2 );
+			if ( 0.0 === $net ) {
+				continue;
+			}
+			$line_data = array(
+				'order_partner_id' => $customer_id,
+				'order_id'         => $odoo_order,
+				'product_id'       => $product_id,
+				'product_uom_qty'  => 1,
+				'price_unit'       => $net,
+				'name'             => (string) $fee->get_name(),
+				'tax_id'           => abs( (float) $fee->get_total_tax() ) > 0
+					? array( array( 6, 0, array( 3 ) ) ) // IVA, same hardcoded tax id as product lines
+					: array( array( 6, 0, array() ) ),
+			);
+
+			$existing = $this->client->search_read(
+				'sale.order.line',
+				array(
+					array( 'order_id', '=', $odoo_order ),
+					array( 'product_id', '=', $product_id ),
+					array( 'name', '=', $line_data['name'] ),
+				),
+				array( 'id' ),
+				null,
+				1,
+				null,
+				array( 'single' => true )
+			);
+			$ok = $existing
+				? $this->client->update_record( 'sale.order.line', (int) $existing->id, $line_data )
+				: $this->client->create_record( 'sale.order.line', $line_data );
+			if ( ! $ok ) {
+				$this->client->log_error( 'Error writing fee line in Odoo', array( 'Fee Line Data' => $line_data ) );
+				$all_success = false;
+			}
+		}
+		return $all_success;
+	}
+
+	/**
+	 * Fiscal data of the buyer: invoice type, RUTs, giro and razón social.
+	 *
+	 * Sources:
+	 *  - ORDER meta (what the checkout wrote for THIS order; b2b uses the same keys):
+	 *      _billing_invoice_type, _wc_other/pinkmask/rut_empresa, _wc_other/pinkmask/rut_personal,
+	 *      _wc_other/pinkmask/giro, _wc_other/pinkmask/razon_social (or billing company), _billing_rut
+	 *  - USER meta (the buyer's account profile):
+	 *      billing_invoice_type, billing_rut_empresa, billing_rut_personal, billing_giro,
+	 *      billing_company, billing_rut
+	 *
+	 * fiscal_source = legacy (default, v1.6.1 behaviour): logged-in buyer -> user meta
+	 * only; guest -> order meta only. fiscal_source = order_first: order meta per field,
+	 * falling back to user meta when the order has no value. For the invoice type, the
+	 * order wins whenever it stores the key at all (an empty value means boleta).
+	 *
+	 * Values are returned raw; callers apply the same fallbacks as before
+	 * (legacy _billing_rut, default giro, contact name as razón social).
+	 *
+	 * @param \WC_Order          $order WooCommerce order.
+	 * @param \WP_User|false|null $user  Buyer account, if any.
+	 * @return array{invoice_type:string, rut_empresa:string, rut_personal:string, giro:string, razon_social:string, legacy_rut:string}
+	 */
+	public function get_fiscal_data( $order, $user = null ): array {
+		$from_order = array(
+			'invoice_type' => (string) $order->get_meta( '_billing_invoice_type' ),
+			'rut_empresa'  => (string) $order->get_meta( '_wc_other/pinkmask/rut_empresa' ),
+			'rut_personal' => (string) $order->get_meta( '_wc_other/pinkmask/rut_personal' ),
+			'giro'         => (string) $order->get_meta( '_wc_other/pinkmask/giro' ),
+			'razon_social' => (string) $order->get_billing_company(),
+			'legacy_rut'   => (string) $order->get_meta( '_billing_rut' ),
+		);
+
+		$order_first = Woo2Odoo_Config::FISCAL_SOURCE_ORDER_FIRST === Woo2Odoo_Config::fiscal_source();
+		if ( $order_first ) {
+			// The b2b checkout stores the razón social explicitly; prefer it over billing company.
+			$order_razon = (string) $order->get_meta( '_wc_other/pinkmask/razon_social' );
+			if ( '' !== $order_razon ) {
+				$from_order['razon_social'] = $order_razon;
+			}
+			if ( '' === $from_order['invoice_type'] && 'factura' === (string) $order->get_meta( '_wc_other/pinkmask/tipo_documento' ) ) {
+				$from_order['invoice_type'] = '1';
+			}
+		}
+
+		if ( ! $user ) {
+			return $from_order;
+		}
+
+		$from_user = array(
+			'invoice_type' => (string) get_user_meta( $user->ID, 'billing_invoice_type', true ),
+			'rut_empresa'  => (string) get_user_meta( $user->ID, 'billing_rut_empresa', true ),
+			'rut_personal' => (string) get_user_meta( $user->ID, 'billing_rut_personal', true ),
+			'giro'         => (string) get_user_meta( $user->ID, 'billing_giro', true ),
+			'razon_social' => (string) get_user_meta( $user->ID, 'billing_company', true ),
+			'legacy_rut'   => (string) get_user_meta( $user->ID, 'billing_rut', true ),
+		);
+
+		if ( ! $order_first ) {
+			return $from_user;
+		}
+
+		$merged = array();
+		foreach ( $from_order as $key => $value ) {
+			$merged[ $key ] = '' !== $value ? $value : $from_user[ $key ];
+		}
+		// The order's own choice wins whenever the checkout recorded one, even when it is
+		// empty (= boleta): an account profile saying "factura" must not override it.
+		if ( $this->order_has_meta( $order, '_billing_invoice_type' ) || $this->order_has_meta( $order, '_wc_other/pinkmask/tipo_documento' ) ) {
+			$merged['invoice_type'] = $from_order['invoice_type'];
+		}
+		return $merged;
+	}
+
+	/**
+	 * Whether the order stores a meta key at all (even with an empty value).
+	 *
+	 * @param \WC_Order $order WooCommerce order.
+	 * @param string    $key   Meta key.
+	 * @return bool
+	 */
+	private function order_has_meta( $order, string $key ): bool {
+		if ( method_exists( $order, 'meta_exists' ) ) {
+			return (bool) $order->meta_exists( $key );
+		}
+		return '' !== (string) $order->get_meta( $key );
+	}
+
+	/**
+	 * Find an existing Odoo partner by RUT (setting partner_match_rut).
+	 *
+	 * Factura: a company (is_company=True) with that RUT; boleta: a top-level
+	 * person. Returns the partner's commercial partner id, or 0 when no match.
+	 *
+	 * @param array $customer Resolved customer data (see get_customer_data()).
+	 * @return int
+	 */
+	private function find_partner_by_rut( array $customer ): int {
+		$requires_factura = ! empty( $customer['requires_factura'] );
+		$raw              = $requires_factura
+			? ( $customer['rut_empresa'] ?: $customer['legacy_rut'] )
+			: ( $customer['rut_personal'] ?: $customer['legacy_rut'] );
+		$rut              = $this->format_rut( $raw );
+		if ( strlen( $rut ) < 3 ) {
+			return 0;
+		}
+		// Odoo may store the vat as typed (12345678-9), with dots or with the CL prefix.
+		$body     = substr( $rut, 0, -2 );
+		$dotted   = number_format( (int) $body, 0, ',', '.' ) . substr( $rut, -2 );
+		$variants = array_values( array_unique( array( $rut, $dotted, 'CL' . str_replace( '-', '', $rut ) ) ) );
+
+		$partner = $this->client->search_read(
+			'res.partner',
+			array(
+				array( 'vat', 'in', $variants ),
+				array( 'parent_id', '=', false ),
+				array( 'is_company', '=', $requires_factura ),
+			),
+			array( 'id', 'commercial_partner_id' ),
+			null,
+			1,
+			'id asc',
+			array( 'single' => true )
+		);
+		if ( ! $partner ) {
+			return 0;
+		}
+		if ( ! empty( $partner->commercial_partner_id ) && is_array( $partner->commercial_partner_id ) ) {
+			return (int) $partner->commercial_partner_id[0];
+		}
+		return (int) $partner->id;
 	}
 
 	/**
@@ -673,12 +1037,65 @@ class Woo2Odoo_Order_Manager {
 			return false;
 		}
 
+		// Resolve the fiscal data once (fiscal_source setting) and let integrators adjust it.
+		$customer = array_merge(
+			array(
+				'email'   => $email,
+				'user_id' => $user ? (int) $user->ID : 0,
+			),
+			$this->get_fiscal_data( $order, $user )
+		);
+		$customer['requires_factura'] = '1' === $customer['invoice_type'];
+
+		/**
+		 * Filters the buyer data used to find/create the Odoo partner.
+		 *
+		 * @param array               $customer email, user_id, invoice_type, requires_factura,
+		 *                                      rut_empresa, rut_personal, giro, razon_social, legacy_rut.
+		 * @param \WC_Order           $order    WooCommerce order.
+		 * @param \WP_User|false|null $user     Buyer account, if any.
+		 */
+		$customer = (array) apply_filters( 'woo2odoo_customer_data', $customer, $order, $user );
+		$email    = (string) $customer['email'];
+
 		// Determine whether this order requires a company (factura) or person (boleta) partner
 		// so the Odoo search only returns a partner of the correct is_company type.
 		// A boleta order must never reuse a company partner from a prior factura order.
-		$requiere_factura = $user
-			? ( get_user_meta( $user->ID, 'billing_invoice_type', true ) === '1' )
-			: ( $order->get_meta( '_billing_invoice_type' ) === '1' );
+		$requiere_factura = (bool) $customer['requires_factura'];
+
+		/**
+		 * Lets an integrator supply the Odoo partner id explicitly (e.g. a B2B account
+		 * linked to a known commercial partner). Checked before any search or creation.
+		 *
+		 * @param int|null  $partner_id Null to let the plugin resolve it.
+		 * @param \WC_Order $order      WooCommerce order.
+		 * @param array     $customer   Resolved buyer data (see woo2odoo_customer_data).
+		 */
+		$explicit_partner = apply_filters( 'woo2odoo_partner_id', null, $order, $customer );
+		$rut_partner      = 0;
+		if ( ! ( is_numeric( $explicit_partner ) && (int) $explicit_partner > 0 ) && Woo2Odoo_Config::partner_match_by_rut() ) {
+			$rut_partner = $this->find_partner_by_rut( $customer );
+		}
+
+		if ( is_numeric( $explicit_partner ) && (int) $explicit_partner > 0 ) {
+			$customer_id = (int) $explicit_partner;
+		} elseif ( $rut_partner > 0 ) {
+			$customer_id = $rut_partner;
+		} else {
+			$customer_id = 0;
+		}
+
+		if ( $customer_id > 0 ) {
+			$customer_data['id']               = $customer_id;
+			$customer_data['requires_factura'] = $requiere_factura;
+			$customer_data['invoice_id']       = $this->get_or_create_address( 'invoice', $billing_address_order, $customer_id );
+			$shipping_address_order            = $order->get_address( 'shipping' );
+			if ( empty( $shipping_address_order['address_1'] ) && empty( $shipping_address_order['city'] ) ) {
+				$shipping_address_order = $billing_address_order;
+			}
+			$customer_data['shipping_id'] = $this->get_or_create_address( 'delivery', $shipping_address_order, $customer_id );
+			return $customer_data;
+		}
 
 		if ( $email ) {
 			$customer_id = $this->client->search_read(
@@ -711,15 +1128,16 @@ class Woo2Odoo_Order_Manager {
 				// partner from the order's billing address instead. Without this,
 				// guest checkouts fail with "Customer data is empty" and never sync.
 				$customer_id = $user
-					? $this->create_or_update_customer( $user, null )
-					: $this->create_customer_from_order( $order, null );
+					? $this->create_or_update_customer( $user, null, $customer )
+					: $this->create_customer_from_order( $order, null, $customer );
 			} else {
 				// Remove std class object from the result to match the create return value.
 				$customer_id = (int) $customer_id->id;
 			}
 
 			if ( is_numeric( $customer_id ) ) {
-				$customer_data['id']          = $customer_id;
+				$customer_data['id']               = $customer_id;
+				$customer_data['requires_factura'] = $requiere_factura;
 				$customer_data['invoice_id']  = $this->get_or_create_address( 'invoice', $billing_address_order, $customer_id );
 				$shipping_address_order = $order->get_address( 'shipping' );
 				// Fall back to billing address if shipping is empty (e.g. "ship to same address")
@@ -742,8 +1160,9 @@ class Woo2Odoo_Order_Manager {
 	 *
 	 * @param WP_User    $customer_data WP user object.
 	 * @param int|null   $customer_id   Existing Odoo partner id to update, or null to create.
+	 * @param array|null $fiscal        Resolved fiscal data (get_customer_data()); null = user meta.
 	 */
-	public function create_or_update_customer( $customer_data, $customer_id ) {
+	public function create_or_update_customer( $customer_data, $customer_id, ?array $fiscal = null ) {
 
 		if ( ! $customer_data ) {
 			$this->client->log_error( 'Error creating customer in Odoo', array( 'msg' => 'Customer data is empty' ) );
@@ -754,6 +1173,16 @@ class Woo2Odoo_Order_Manager {
 		$meta         = function ( $key ) use ( $all_meta ) {
 			return isset( $all_meta[ $key ][0] ) ? $all_meta[ $key ][0] : '';
 		};
+		if ( null === $fiscal ) {
+			$fiscal = array(
+				'invoice_type' => (string) $meta( 'billing_invoice_type' ),
+				'rut_empresa'  => (string) $meta( 'billing_rut_empresa' ),
+				'rut_personal' => (string) $meta( 'billing_rut_personal' ),
+				'giro'         => (string) $meta( 'billing_giro' ),
+				'razon_social' => (string) $meta( 'billing_company' ),
+				'legacy_rut'   => (string) $meta( 'billing_rut' ),
+			);
+		}
 
 		$billing_state   = $meta( 'billing_state' );
 		$billing_country = $meta( 'billing_country' ) ?: 'CL';
@@ -763,13 +1192,15 @@ class Woo2Odoo_Order_Manager {
 		$last_name  = trim( get_user_meta( $customer_data->ID, 'last_name', true ) ) ?: trim( $meta( 'billing_last_name' ) );
 		$contact_name = trim( $first_name . ' ' . $last_name ) ?: $customer_data->display_name ?: $customer_data->user_login;
 
-		$requiere_factura = $meta( 'billing_invoice_type' ) === '1';
+		$requiere_factura = isset( $fiscal['requires_factura'] )
+			? (bool) $fiscal['requires_factura']
+			: ( $fiscal['invoice_type'] ?? '' ) === '1';
 
 		if ( $requiere_factura ) {
 			// Factura: company (is_company=True) + contact child.
-			$rut_empresa  = $meta( 'billing_rut_empresa' ) ?: $meta( 'billing_rut' ); // fallback legacy
-			$giro         = $meta( 'billing_giro' ) ?: 'Manicurista';
-			$razon_social = $meta( 'billing_company' ) ?: $contact_name;
+			$rut_empresa  = $fiscal['rut_empresa'] ?: $fiscal['legacy_rut']; // fallback legacy
+			$giro         = $fiscal['giro'] ?: 'Manicurista';
+			$razon_social = $fiscal['razon_social'] ?: $contact_name;
 
 			$company_data = array(
 				'name'                              => $razon_social,
@@ -801,7 +1232,7 @@ class Woo2Odoo_Order_Manager {
 			}
 
 			// Contact child (person linked to the company).
-			$rut_personal = $meta( 'billing_rut_personal' );
+			$rut_personal = (string) $fiscal['rut_personal'];
 			$contact_data = array(
 				'name'                              => $contact_name,
 				'email'                             => $customer_data->user_email,
@@ -820,8 +1251,8 @@ class Woo2Odoo_Order_Manager {
 
 		} else {
 			// Boleta: single person partner (is_company=False).
-			$rut_personal = $meta( 'billing_rut_personal' ) ?: $meta( 'billing_rut' ); // fallback legacy
-			$giro         = $meta( 'billing_giro' ) ?: 'Manicurista';
+			$rut_personal = $fiscal['rut_personal'] ?: $fiscal['legacy_rut']; // fallback legacy
+			$giro         = $fiscal['giro'] ?: 'Manicurista';
 
 			$data = array(
 				'name'                              => $contact_name,
@@ -858,10 +1289,11 @@ class Woo2Odoo_Order_Manager {
 	 * Factura: creates a company partner (is_company=True) + a contact child.
 	 * Returns the company ID for factura, person ID for boleta.
 	 *
-	 * @param WC_Order  $order       The guest order.
-	 * @param int|null  $customer_id Existing Odoo partner id to update, or null to create.
+	 * @param WC_Order   $order       The guest order.
+	 * @param int|null   $customer_id Existing Odoo partner id to update, or null to create.
+	 * @param array|null $fiscal      Resolved fiscal data (get_customer_data()); null = order meta.
 	 */
-	public function create_customer_from_order( $order, $customer_id ) {
+	public function create_customer_from_order( $order, $customer_id, ?array $fiscal = null ) {
 
 		$billing = $order->get_address( 'billing' );
 
@@ -880,19 +1312,24 @@ class Woo2Odoo_Order_Manager {
 			$contact_name = $billing['email'];
 		}
 
-		$requiere_factura = $order->get_meta( '_billing_invoice_type' ) === '1';
+		if ( null === $fiscal ) {
+			$fiscal = $this->get_fiscal_data( $order, null );
+		}
+		$requiere_factura = isset( $fiscal['requires_factura'] )
+			? (bool) $fiscal['requires_factura']
+			: ( $fiscal['invoice_type'] ?? '' ) === '1';
 
 		if ( $requiere_factura ) {
 			// Factura: company (is_company=True) + contact child.
-			$rut_empresa  = (string) $order->get_meta( '_wc_other/pinkmask/rut_empresa' );
+			$rut_empresa  = (string) $fiscal['rut_empresa'];
 			if ( empty( $rut_empresa ) ) {
-				$rut_empresa = (string) $order->get_meta( '_billing_rut' ); // legacy fallback
+				$rut_empresa = (string) $fiscal['legacy_rut']; // legacy fallback
 			}
-			$giro         = (string) $order->get_meta( '_wc_other/pinkmask/giro' );
+			$giro         = (string) $fiscal['giro'];
 			if ( empty( $giro ) ) {
 				$giro = 'Manicurista';
 			}
-			$razon_social = $order->get_billing_company();
+			$razon_social = $fiscal['razon_social'];
 			if ( empty( $razon_social ) ) {
 				$razon_social = $contact_name; // last resort
 			}
@@ -927,7 +1364,7 @@ class Woo2Odoo_Order_Manager {
 			}
 
 			// Contact child (person linked to the company).
-			$rut_personal = (string) $order->get_meta( '_wc_other/pinkmask/rut_personal' );
+			$rut_personal = (string) $fiscal['rut_personal'];
 			$contact_data = array(
 				'name'                              => $contact_name,
 				'email'                             => $billing['email'],
@@ -953,10 +1390,14 @@ class Woo2Odoo_Order_Manager {
 
 		} else {
 			// Boleta: single person partner (is_company=False).
-			$rut_personal = (string) $order->get_meta( '_wc_other/pinkmask/rut_personal' );
+			$rut_personal = (string) $fiscal['rut_personal'];
 			if ( empty( $rut_personal ) ) {
-				$rut_personal = (string) $order->get_meta( '_billing_rut' ); // legacy fallback
+				$rut_personal = (string) $fiscal['legacy_rut']; // legacy fallback
 			}
+			// Guest boleta partners always used the default giro; order_first honours the order's.
+			$guest_giro = Woo2Odoo_Config::FISCAL_SOURCE_ORDER_FIRST === Woo2Odoo_Config::fiscal_source() && '' !== (string) $fiscal['giro']
+				? (string) $fiscal['giro']
+				: 'Manicurista';
 
 			$data = array(
 				'name'                              => $contact_name,
@@ -975,7 +1416,7 @@ class Woo2Odoo_Order_Manager {
 				'vat'                               => $this->format_rut( $rut_personal ),
 				'l10n_cl_sii_taxpayer_type'         => '1',
 				'l10n_cl_dte_email'                 => $billing['email'],
-				'l10n_cl_activity_description'      => 'Manicurista',
+				'l10n_cl_activity_description'      => $guest_giro,
 			);
 
 			$partner_id = $customer_id
@@ -1157,6 +1598,9 @@ class Woo2Odoo_Order_Manager {
 		$order_items   = $order->get_items();
 		$odoo_products = $this->get_odoo_skus( $order );
 		$all_success   = true;
+		// sale.order.line ids created by THIS call, so a SKU that appears twice in the same
+		// WC order gets its own line instead of overwriting the first one.
+		$created_lines = array();
 
 		foreach ($order_items as $item) {
 			$product      = $item->get_product();
@@ -1190,10 +1634,15 @@ class Woo2Odoo_Order_Manager {
 					null,
 					array( 'single' => true )
 				);
-				if ( $odoo_order_line ) {
-					$retval = $this->client->update_record( 'sale.order.line', $odoo_order, $line_data );
+				if ( $odoo_order_line && ! isset( $created_lines[ (int) $odoo_order_line->id ] ) ) {
+					// Update the LINE found above. v1.6.1 passed the sale.order id here, which
+					// wrote this line's values onto whatever sale.order.line had that id.
+					$retval = $this->client->update_record( 'sale.order.line', (int) $odoo_order_line->id, $line_data );
 				} else {
 					$retval = $this->client->create_record( 'sale.order.line', $line_data );
+					if ( $retval && is_numeric( $retval ) ) {
+						$created_lines[ (int) $retval ] = true;
+					}
 				}
 				if ( !$retval ) {
 					$this->client->log_error( 'Error creating order line item in Odoo', array( 'Order Line Data' => $line_data ) );
@@ -1269,7 +1718,7 @@ class Woo2Odoo_Order_Manager {
 			$date_str = $order->get_meta( 'transactionDate' );
 			$date = $this->parse_transbank_date( $date_str );
 
-			$memo = 'Pedido WC#' . $order->get_id();
+			$memo = 'Pedido WC#' . Woo2Odoo_Config::order_ref( $order->get_id() );
 
 			return array(
 				'amount' => $amount,
@@ -1293,7 +1742,7 @@ class Woo2Odoo_Order_Manager {
 
 			$date = $this->parse_mercadopago_date( $paid_date );
 
-			$memo = 'Pedido WC#' . $order->get_id();
+			$memo = 'Pedido WC#' . Woo2Odoo_Config::order_ref( $order->get_id() );
 
 			return array(
 				'amount' => $amount,
@@ -1310,7 +1759,7 @@ class Woo2Odoo_Order_Manager {
 			$amount    = (float) $order->get_total();
 			$date_paid = $order->get_date_paid();
 			$date      = $date_paid ? $date_paid->format( 'Y-m-d' ) : date( 'Y-m-d' );
-			$memo      = 'Pedido WC#' . $order->get_id() . ' - Transferencia Bancaria';
+			$memo      = 'Pedido WC#' . Woo2Odoo_Config::order_ref( $order->get_id() ) . ' - Transferencia Bancaria';
 
 			return array(
 				'amount' => $amount,
@@ -1494,7 +1943,11 @@ class Woo2Odoo_Order_Manager {
 	 */
 	public function refund_sync( $order_id, $refund_id ) {
 		// Test / Debug skip-list: no credit note for orders that were never sent to Odoo.
-		if ( Woo2Odoo_Test_Orders::maybe_skip( (int) $order_id, 'refunds' ) ) {
+		if ( ! $this->is_shadow() && ! Woo2Odoo_Config::sync_enabled() ) {
+			$this->client->log_info( 'Refund sync skipped: sync disabled by the master switch', array( 'order_id' => $order_id ) );
+			return false;
+		}
+		if ( ! $this->is_shadow() && Woo2Odoo_Test_Orders::maybe_skip( (int) $order_id, 'refunds' ) ) {
 			return false;
 		}
 
@@ -1512,7 +1965,7 @@ class Woo2Odoo_Order_Manager {
 			}
 
 			// Find the original Odoo invoice (read via WC API)
-			$wc_order        = wc_get_order( $order_id );
+			$wc_order        = $this->load_order( $order_id );
 			$odoo_invoice_id = (int) $wc_order->get_meta( '_woo2odoo_invoice_id' );
 			if ( ! $odoo_invoice_id ) {
 				$this->client->log_warning( 'Original Odoo invoice not found for order — refund not exported', array( 'order_id' => $order_id ) );
@@ -1549,12 +2002,12 @@ class Woo2Odoo_Order_Manager {
 				'partner_id'                  => (int) $customer_data['id'],
 				'partner_shipping_id'         => (int) $customer_data['shipping_id'],
 				'reversed_entry_id'           => $odoo_invoice_id,
-				'invoice_origin'              => $odoo_invoice->name ?? ( 'WC#' . $order_id ),
+				'invoice_origin'              => $odoo_invoice->name ?? ( 'WC#' . Woo2Odoo_Config::order_ref( $order_id ) ),
 				'journal_id'                  => $journal_id,
 				'invoice_date'                => date( 'Y-m-d' ),
 				'currency_id'                 => 44, // CLP
 				'l10n_latam_document_type_id' => $latam_document_type_id,
-				'payment_reference'           => 'Refund WC#' . $order_id,
+				'payment_reference'           => 'Refund WC#' . Woo2Odoo_Config::order_ref( $order_id ),
 			) );
 
 			if ( ! $credit_note_id ) {
@@ -1618,8 +2071,10 @@ class Woo2Odoo_Order_Manager {
 			}
 
 			// Store on WC refund object to survive HPOS backfill sync
-			$wc_refund->update_meta_data( '_woo2odoo_return_invoice_id', $credit_note_id );
-			$wc_refund->save();
+			if ( ! $this->is_shadow() ) {
+				$wc_refund->update_meta_data( '_woo2odoo_return_invoice_id', $credit_note_id );
+				$wc_refund->save();
+			}
 
 			$this->client->log_info( 'Credit note created in Odoo (draft)', array(
 				'credit_note_id' => $credit_note_id,
@@ -1656,7 +2111,11 @@ class Woo2Odoo_Order_Manager {
 	 * @return bool True on success or no-op, false on failure.
 	 */
 	public function cancel_sync( $order_id ) {
-		$order = wc_get_order( $order_id );
+		if ( ! $this->is_shadow() && ! Woo2Odoo_Config::sync_enabled() ) {
+			$this->client->log_info( 'Cancel sync skipped: sync disabled by the master switch', array( 'order_id' => $order_id ) );
+			return false;
+		}
+		$order = $this->load_order( $order_id );
 		if ( ! $order ) {
 			$this->client->log_warning( 'Odoo cancel_sync failed: Order not found', array( 'order_id' => $order_id ) );
 			return false;
