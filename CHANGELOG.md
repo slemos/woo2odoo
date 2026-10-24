@@ -19,6 +19,19 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
   - Dos capas. Los hooks automáticos (`on-hold`/`processing`, job en segundo plano, reembolsos, cancelaciones) deciden **antes de crear el cliente de Odoo**, por lo que un pedido de prueba se omite incluso con Odoo caído o mal configurado (el constructor de `Woo2Odoo_Client` ya conecta con Odoo y lanza excepción si falla). La guarda de `order_sync()` / `refund_sync()` es la capa de respaldo y cubre WP-CLI, las acciones de admin y el botón de re-sincronizar; en esas rutas manuales el cliente se crea primero y luego se omite. Si la propia capa de omisión fallara, el pedido se sincroniza con normalidad (falla abierto).
   - Filtro `woo2odoo_skip_test_order` para extender la decisión.
   - Tests: `phpunit-pure.xml` (30 tests sin WordPress) y `tests/wpunit-test-orders-skip.php` (integración).
+- **Preparación multi-tienda (B2B).** Todo nuevo ajuste tiene como valor por defecto el comportamiento de 1.6.1; un test de regresión compara los payloads contra una copia congelada de 1.6.1 (`tests/fixtures/`).
+  - Interruptor general `export_order` (ahora un select Activado/Desactivado; sin valor o `'true'` = activado) y constante `WOO2ODOO_SYNC_DISABLED`. Desactivado: ningún hook, CLI ni acción de admin sincroniza pedidos, reembolsos, cancelaciones ni stock. Filtro `woo2odoo_sync_enabled`.
+  - Prefijo de referencia `origin_prefix` / filtro `woo2odoo_origin_prefix`: `origin`, `client_order_ref` y referencias de pago usan prefijo + ID; las búsquedas por `origin` (sync, backfill) son exactas, así que una tienda con prefijo nunca vincula un SO de otra.
+  - Fuente de datos fiscales `fiscal_source` (`legacy` por defecto, `order_first`) en un único helper `get_fiscal_data()`; filtro `woo2odoo_customer_data`.
+  - Resolución de partner: filtro `woo2odoo_partner_id` (ID explícito, antes de buscar/crear) y búsqueda opcional por RUT (`partner_match_rut`, apagada por defecto).
+  - Recargos (fees) como líneas de un producto de servicio configurable (`fee_product`, ID o SKU); sin configurar se ignoran como antes.
+  - Envío: solo se divide por 1,19 si WC no informa IVA de envío aparte; producto de envío configurable (`shipping_product_id`, por defecto 1229).
+  - Vendedor y equipo (`salesperson_user_id`, `sales_team_id`) y filtro `woo2odoo_sale_order_vals`.
+  - Modo sombra (`shadow_mode` / `WOO2ODOO_SHADOW_MODE`): las escrituras a Odoo se registran (log `woo2odoo-shadow`) y devuelven IDs falsos; las lecturas siguen yendo a Odoo; el pedido WC no se modifica. Comando `wp woo2odoo shadow <id> [--diff]`.
+
+### Fixed
+- **Bloqueo por pedido**: el webhook de la pasarela y la página de retorno ya no pueden sincronizar el mismo pedido en paralelo (`Woo2Odoo_Sync_Lock`, `INSERT IGNORE` en `wp_options`, TTL 180 s).
+- **`add_order_line_items()` actualizaba la línea equivocada**: pasaba el ID del `sale.order` como ID de línea. Solo ocurría con un mismo SKU repetido en el pedido; ahora cada repetición crea su propia línea.
 
 ## [1.6.1] - 2026-09-16
 
