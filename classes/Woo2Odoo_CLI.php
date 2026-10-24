@@ -284,7 +284,98 @@ class Woo2Odoo_CLI {
 		) );
 	}
 
+	/**
+	 * Run one WC order through the sync in SHADOW mode: nothing is written to Odoo
+	 * and the WC order is not modified. Odoo writes are printed (and logged to the
+	 * WC log source woo2odoo-shadow); reads (partner/product lookups) query Odoo.
+	 *
+	 * By default an existing sale order with the same origin is ignored, so the full
+	 * creation payload is always shown. With --diff, that existing sale order (found
+	 * by origin, prefix-aware) is compared with the shadow payload.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <order_id>
+	 * : WooCommerce order id.
+	 *
+	 * [--diff]
+	 * : Compare the shadow sale.order and lines with the existing Odoo sale order of the same origin.
+	 *
+	 * [--respect-existing]
+	 * : Follow the real code path when a sale order already exists (link instead of create).
+	 *
+	 * [--format=<format>]
+	 * : Output format for the payloads.
+	 * ---
+	 * default: json
+	 * options:
+	 *   - json
+	 *   - table
+	 * ---
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp woo2odoo shadow 12345
+	 *     wp woo2odoo shadow 12345 --diff
+	 *
+	 * @when after_wp_load
+	 */
+	public function shadow( array $args, array $assoc_args ): void {
+		$order_id = (int) ( $args[0] ?? 0 );
+		if ( ! $order_id || ! wc_get_order( $order_id ) ) {
+			\WP_CLI::error( "Order #{$order_id} not found." );
+			return;
+		}
+		$diff   = (bool) \WP_CLI\Utils\get_flag_value( $assoc_args, 'diff', false );
+		$format = (string) \WP_CLI\Utils\get_flag_value( $assoc_args, 'format', 'json' );
+
+		$client = new Woo2Odoo_Client( null, true );
+		if ( ! $client->is_shadow_mode() ) {
+			\WP_CLI::error( 'Could not enable shadow mode; aborting before any Odoo call.' );
+			return;
+		}
+		$manager                         = new Woo2Odoo_Order_Manager( $client );
+		$manager->shadow_ignore_existing = ! (bool) \WP_CLI\Utils\get_flag_value( $assoc_args, 'respect-existing', false );
+
+		$result = $manager->order_sync( $order_id );
+		$log    = $client->get_shadow_log();
+
+		\WP_CLI::log( sprintf( 'Shadow run of #%d (origin %s): result=%s, %d Odoo write(s) captured.', $order_id, Woo2Odoo_Config::order_ref( $order_id ), $result ? 'ok' : 'failed', count( $log ) ) );
+		if ( 'table' === $format ) {
+			$rows = array();
+			foreach ( $log as $entry ) {
+				$rows[] = array(
+					'seq'     => $entry['seq'],
+					'call'    => $entry['op'] . ' ' . $entry['model'] . '.' . $entry['method'],
+					'result'  => is_scalar( $entry['result'] ) ? (string) $entry['result'] : wp_json_encode( $entry['result'] ),
+					'payload' => wp_json_encode( $entry['args'] ),
+				);
+			}
+			\WP_CLI\Utils\format_items( 'table', $rows, array( 'seq', 'call', 'result', 'payload' ) );
+		} else {
+			\WP_CLI::log( (string) wp_json_encode( $log, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+		}
+
+		if ( $diff ) {
+			$rows = Woo2Odoo_Shadow_Diff::compare( $client, $log, Woo2Odoo_Config::order_ref( $order_id ) );
+			if ( null === $rows ) {
+				\WP_CLI::warning( 'No existing (non-cancelled) Odoo sale order with origin ' . Woo2Odoo_Config::order_ref( $order_id ) . '; nothing to diff.' );
+				return;
+			}
+			\WP_CLI\Utils\format_items( 'table', $rows, array( 'field', 'shadow', 'odoo', 'match' ) );
+			$mismatches = count( array_filter( $rows, static fn( $r ) => 'yes' !== $r['match'] ) );
+			if ( $mismatches ) {
+				\WP_CLI::warning( "{$mismatches} difference(s)." );
+			} else {
+				\WP_CLI::success( 'Shadow payload matches the existing sale order.' );
+			}
+		}
+	}
+
 	private function sync_single( int $order_id, bool $dry_run ): void {
+		if ( ! Woo2Odoo_Config::sync_enabled() ) {
+			\WP_CLI::warning( 'Sync is disabled by the master switch (export_order / WOO2ODOO_SYNC_DISABLED); nothing will be sent. Use `wp woo2odoo shadow` to preview payloads.' );
+		}
 		$order = wc_get_order( $order_id );
 
 		if ( ! $order ) {
