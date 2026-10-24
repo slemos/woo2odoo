@@ -329,12 +329,79 @@ final class Woo2Odoo_Plugin_Settings {
 
 				break;
 			case 'export':
+				// Master switch. A select, not a checkbox: an unchecked checkbox is not
+				// submitted at all, so "never saved" and "turned off" would look the same.
+				// Unset or 'true' (the old checkbox value) = enabled; only 'false' disables.
 				$settings_fields['export_order']         = array(
-					'name'        => __( 'Export Orders', 'woo2odoo-plugin' ),
+					'name'        => __( 'Sync with Odoo (master switch)', 'woo2odoo-plugin' ),
+					'type'        => 'select',
+					'default'     => 'true',
+					'section'     => 'export',
+					'description' => __( 'Disabled: no order, refund, cancellation or stock sync runs, from any hook or tool. The constant WOO2ODOO_SYNC_DISABLED (wp-config.php) disables it before the plugin is configured.', 'woo2odoo-plugin' ),
+					'options'     => array(
+						'true'  => __( 'Enabled', 'woo2odoo-plugin' ),
+						'false' => __( 'Disabled', 'woo2odoo-plugin' ),
+					),
+				);
+				$settings_fields['shadow_mode']          = array(
+					'name'        => __( 'Shadow mode', 'woo2odoo-plugin' ),
 					'type'        => 'checkbox',
+					'default'     => 'false',
+					'section'     => 'export',
+					'description' => __( 'Log every Odoo write (WC logs, source woo2odoo-shadow) and return fake ids instead of writing; reads still query Odoo. WC orders are not modified.', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['origin_prefix']        = array(
+					'name'        => __( 'Order reference prefix', 'woo2odoo-plugin' ),
+					'type'        => 'text',
 					'default'     => '',
 					'section'     => 'export',
-					'description' => __( 'Export order on checkout?', 'woo2odoo-plugin' ),
+					'description' => __( 'Prepended to the WC order id in the sale order origin / customer reference and payment references (e.g. "B2B-"). Required when several stores share one Odoo. Changing it later breaks the lookup of already synced orders.', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['fiscal_source']        = array(
+					'name'        => __( 'Fiscal data source', 'woo2odoo-plugin' ),
+					'type'        => 'select',
+					'default'     => 'legacy',
+					'section'     => 'export',
+					'description' => __( 'Where invoice type, RUT, giro and razón social are read from for logged-in buyers.', 'woo2odoo-plugin' ),
+					'options'     => array(
+						'legacy'      => __( 'Account profile for logged-in buyers, order for guests (default)', 'woo2odoo-plugin' ),
+						'order_first' => __( 'Order first, account profile as fallback', 'woo2odoo-plugin' ),
+					),
+				);
+				$settings_fields['partner_match_rut']    = array(
+					'name'        => __( 'Match customers by RUT', 'woo2odoo-plugin' ),
+					'type'        => 'checkbox',
+					'default'     => 'false',
+					'section'     => 'export',
+					'description' => __( 'Before matching by email, look for an existing Odoo partner with the same RUT.', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['fee_product']          = array(
+					'name'        => __( 'Fee product (id or SKU)', 'woo2odoo-plugin' ),
+					'type'        => 'text',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'Odoo service product used for WC fee lines (e.g. payment surcharges). Empty: fees are not sent.', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['shipping_product_id']  = array(
+					'name'        => __( 'Shipping product id', 'woo2odoo-plugin' ),
+					'type'        => 'text',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'Odoo product id for the shipping line. Empty: 1229.', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['salesperson_user_id']  = array(
+					'name'        => __( 'Salesperson (Odoo user id)', 'woo2odoo-plugin' ),
+					'type'        => 'text',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'Set as user_id on new sale orders. Empty: Odoo default.', 'woo2odoo-plugin' ),
+				);
+				$settings_fields['sales_team_id']        = array(
+					'name'        => __( 'Sales team (Odoo team id)', 'woo2odoo-plugin' ),
+					'type'        => 'text',
+					'default'     => '',
+					'section'     => 'export',
+					'description' => __( 'Set as team_id on new sale orders. Empty: Odoo default.', 'woo2odoo-plugin' ),
 				);
 				$settings_fields['export_order_invoice'] = array(
 					'name'        => __( 'Export Invoice', 'woo2odoo-plugin' ),

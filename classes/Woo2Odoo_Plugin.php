@@ -127,8 +127,14 @@ final class Woo2Odoo_Plugin {
 	 * @param int $order_id WooCommerce order ID.
 	 */
 	public function auto_sync_order( int $order_id ): void {
+		// Master switch: decided before anything else, so a disabled site never touches
+		// the order nor builds an Odoo client. Shadow mode may run (it never writes).
+		if ( ! self::hooks_may_sync() ) {
+			return;
+		}
 		// Test / Debug skip-list: decided before the Odoo client exists (works with Odoo down).
-		if ( Woo2Odoo_Test_Orders::maybe_skip( $order_id, 'orders' ) ) {
+		// (Shadow runs check the skip-list themselves without marking the real order.)
+		if ( ! Woo2Odoo_Config::shadow_mode() && Woo2Odoo_Test_Orders::maybe_skip( $order_id, 'orders' ) ) {
 			return;
 		}
 		try {
@@ -141,13 +147,26 @@ final class Woo2Odoo_Plugin {
 	}
 
 	/**
+	 * Whether the automatic hooks may run: sync enabled (master switch), or shadow
+	 * mode on (writes are only logged, so it is safe on a site with sync disabled).
+	 *
+	 * @return bool
+	 */
+	public static function hooks_may_sync(): bool {
+		return Woo2Odoo_Config::sync_enabled() || Woo2Odoo_Config::shadow_mode();
+	}
+
+	/**
 	 * Automatically create a credit note in Odoo when WC registers a refund.
 	 *
 	 * @param int $order_id  WooCommerce order ID.
 	 * @param int $refund_id WooCommerce refund post ID.
 	 */
 	public function auto_refund_order( int $order_id, int $refund_id ): void {
-		if ( Woo2Odoo_Test_Orders::maybe_skip( $order_id, 'refunds' ) ) {
+		if ( ! self::hooks_may_sync() ) {
+			return;
+		}
+		if ( ! Woo2Odoo_Config::shadow_mode() && Woo2Odoo_Test_Orders::maybe_skip( $order_id, 'refunds' ) ) {
 			return;
 		}
 		try {
@@ -164,6 +183,9 @@ final class Woo2Odoo_Plugin {
 	 * @param int $order_id WooCommerce order ID.
 	 */
 	public function auto_cancel_order( int $order_id ): void {
+		if ( ! self::hooks_may_sync() ) {
+			return;
+		}
 		// A skipped (never exported) test order has nothing to cancel in Odoo.
 		if ( Woo2Odoo_Test_Orders::is_skipped_and_unexported( $order_id ) ) {
 			return;
@@ -260,6 +282,10 @@ final class Woo2Odoo_Plugin {
 	 * @since   1.0.0
 	 */
 	public function run_stock_sync(): void {
+		// The master switch also stops the Odoo -> WC stock import.
+		if ( ! Woo2Odoo_Config::sync_enabled() ) {
+			return;
+		}
 		try {
 			$client         = new Woo2Odoo_Client();
 			$stock_manager  = new Woo2Odoo_Stock_Manager( $client );
