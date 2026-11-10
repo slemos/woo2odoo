@@ -109,6 +109,7 @@ class Woo2Odoo_Sync_Status_Tab {
 			'pending' => __( 'Pendientes', 'woo2odoo-plugin' ),
 			'never'   => __( 'Sin intentar', 'woo2odoo-plugin' ),
 			'synced'  => __( 'Sincronizados', 'woo2odoo-plugin' ),
+			'diff'    => __( 'Con diferencia de total', 'woo2odoo-plugin' ),
 			'skipped' => __( 'Omitidos (prueba)', 'woo2odoo-plugin' ),
 			'all'     => __( 'Todos', 'woo2odoo-plugin' ),
 		);
@@ -128,6 +129,9 @@ class Woo2Odoo_Sync_Status_Tab {
 			case 'synced':
 			case 'skipped':
 				return array( array( 'key' => '_woo2odoo_sync_status', 'value' => $filter ) );
+			case 'diff':
+				// Totals of Woo and Odoo differ (see Woo2Odoo_Total_Check). Sync status stays `synced`.
+				return array( array( 'key' => Woo2Odoo_Total_Check::META_DIFF, 'compare' => 'EXISTS' ) );
 			default: // 'all'
 				return array();
 		}
@@ -353,6 +357,7 @@ class Woo2Odoo_Sync_Status_Tab {
 		$so_cell  = $so ? esc_html( $so ) . self::odoo_link( $odoo_url, 'sales', $so ) : '—';
 		$inv_cell = $invoice ? esc_html( $invoice ) . self::odoo_link( $odoo_url, 'invoice', $invoice ) : '—';
 		$pay_cell = $payment ? esc_html( $payment ) : '—';
+		$diff_key = (string) $order->get_meta( Woo2Odoo_Total_Check::META_DIFF );
 		?>
 		<tr id="woo2odoo-row-<?php echo (int) $id; ?>" data-order-id="<?php echo (int) $id; ?>">
 			<th scope="row" class="check-column">
@@ -366,7 +371,7 @@ class Woo2Odoo_Sync_Status_Tab {
 			<td class="cell-so"><?php echo wp_kses_post( $so_cell ); ?></td>
 			<td class="cell-inv"><?php echo wp_kses_post( $inv_cell ); ?></td>
 			<td class="cell-pay"><?php echo esc_html( $pay_cell ); ?></td>
-			<td class="cell-status"><?php echo self::badge_html( $status, $error ); // phpcs:ignore WordPress.Security.EscapeOutput ?></td>
+			<td class="cell-status"><?php echo self::badge_html( $status, $error ); // phpcs:ignore WordPress.Security.EscapeOutput ?><?php echo self::diff_badge_html( $diff_key ); // phpcs:ignore WordPress.Security.EscapeOutput ?></td>
 			<td class="cell-action">
 				<button type="button" class="button woo2odoo-sync-one" data-order-id="<?php echo (int) $id; ?>">
 					<?php echo 'synced' === $status ? esc_html__( 'Re-sincronizar', 'woo2odoo-plugin' ) : esc_html__( 'Sincronizar', 'woo2odoo-plugin' ); ?>
@@ -384,6 +389,16 @@ class Woo2Odoo_Sync_Status_Tab {
 			? '/odoo/accounting/customer-invoices/' . rawurlencode( $id )
 			: '/odoo/sales/' . rawurlencode( $id );
 		return ' <a href="' . esc_url( $odoo_url . $path ) . '" target="_blank" rel="noopener noreferrer" title="Ver en Odoo" style="text-decoration:none;">&#8599;</a>';
+	}
+
+	/** Amber badge shown next to the status while the Woo and Odoo totals differ. */
+	private static function diff_badge_html( string $diff_key ): string {
+		if ( '' === $diff_key || false === strpos( $diff_key, '|' ) ) {
+			return '';
+		}
+		list( $woo, $odoo ) = array_map( 'floatval', explode( '|', $diff_key, 2 ) );
+		$title = sprintf( 'Woo $%s · Odoo $%s', number_format( $woo, 0, ',', '.' ), number_format( $odoo, 0, ',', '.' ) );
+		return ' <span class="woo2odoo-badge b-diff" title="' . esc_attr( $title ) . '">diferencia de total</span>';
 	}
 
 	private static function badge_html( string $status, string $error = '' ): string {
@@ -425,6 +440,7 @@ class Woo2Odoo_Sync_Status_Tab {
 			#woo2odoo-sync-tab .b-failed { background:#dc3232; }
 			#woo2odoo-sync-tab .b-never { background:#999; }
 			#woo2odoo-sync-tab .b-skipped { background:#787c82; }
+			#woo2odoo-sync-tab .b-diff { background:#d63638; }
 			#woo2odoo-sync-tab .woo2odoo-err { color:#b32d2e; font-size:11px; margin-top:3px; max-width:260px; }
 			#woo2odoo-sync-tab .woo2odoo-pagination { margin:14px 0; display:flex; gap:4px; flex-wrap:wrap; }
 			#woo2odoo-sync-tab .woo2odoo-pagination .page { padding:3px 9px; border:1px solid #c3c4c7; border-radius:3px; text-decoration:none; font-size:13px; background:#fff; }

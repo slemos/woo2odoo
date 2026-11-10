@@ -12,6 +12,11 @@ Release notes are also published as [GitHub Releases](https://github.com/slemos/
 ## [Unreleased]
 
 ### Added
+- **Aviso cuando el total de Woo difiere del total de Odoo.** Pedido de Ailen y Sigrid (tolerancia de $2 fijada por Sigrid). Un minuto después de guardar un pedido ya sincronizado (la sincronización misma y cualquier edición posterior en el admin), un evento de wp-cron lee el pedido de venta en Odoo y compara `amount_total` con el total de Woo. Si difieren en más de $2 deja una nota en el pedido ("el total de Woo X es distinto del total de Odoo Y") y marca el pedido con `_woo2odoo_total_diff`; si después coinciden, limpia la marca y lo anota. Solo avisa: no corrige, no bloquea y no cambia el estado de sync (sigue `synced`).
+  - Pestaña "Estado Odoo": nuevo filtro **"Con diferencia de total"** y una insignia roja "diferencia de total" junto al estado, con los dos montos al pasar el cursor.
+  - Auditoría por consola, solo lectura: `wp woo2odoo check-totals [<pedido>] [--since=YYYY-MM-DD] [--apply] [--format=csv]`. Con `--apply` escribe las mismas notas y marcas.
+  - No llama a Odoo dentro de la petición que guarda el pedido, no repite notas mientras la diferencia no cambie y, si Odoo no responde, se salta el pedido sin error. Filtro `woo2odoo_total_tolerance` para cambiar la tolerancia.
+  - Tests: `tests/pure/TotalCheckTest.php` (16 casos sin WordPress). Probado además en staging con un Odoo simulado.
 - **Pestaña "Test / Debug" con lista de correos de prueba que no se sincronizan con Odoo.** Los pedidos y reembolsos cuyo correo (de facturación o el de la cuenta del cliente) coincide con la lista no crean cotización, factura, pago ni nota de crédito en Odoo, para poder probar compras reales en producción sin ensuciar la contabilidad. Todo es configurable desde el admin y se guarda en una opción de WordPress (`Woo2Odoo-plugin-testing`):
   - Interruptor general (apagado por defecto), lista de correos exactos o con comodines `*` / `?` (por ejemplo `qa+*@example.com`), un interruptor aparte para pedidos y para reembolsos, y nota en el pedido opcional.
   - Seguridad: solo afecta a pedidos que **nunca** se exportaron a Odoo (un pedido ya sincronizado sigue su flujo normal); se rechazan al guardar los patrones demasiado amplios (`*@gmail.com`, comodines en el dominio).
