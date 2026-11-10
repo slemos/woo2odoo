@@ -372,6 +372,150 @@ class Woo2Odoo_CLI {
 		}
 	}
 
+	/**
+	 * Compara el total de Woo con el total del pedido de venta de Odoo.
+	 *
+	 * Solo lectura por defecto: lista los pedidos cuyo total difiere en más de la tolerancia
+	 * (2 pesos, filtrable con `woo2odoo_total_tolerance`). Con --apply deja la nota y la marca
+	 * "Con diferencia de total" en cada pedido (igual que el aviso automático). No corrige,
+	 * no re-sincroniza y no toca Odoo.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [<order_id>]
+	 * : Revisar solo este pedido.
+	 *
+	 * [--since=<fecha>]
+	 * : Solo pedidos creados desde esta fecha (YYYY-MM-DD).
+	 * ---
+	 * default: 90 days ago
+	 * ---
+	 *
+	 * [--wc-status=<wc_status>]
+	 * : Estados WooCommerce a incluir (separados por coma).
+	 * ---
+	 * default: on-hold,processing,completed,en-despacho
+	 * ---
+	 *
+	 * [--limit=<N>]
+	 * : Máximo de pedidos a revisar.
+	 * ---
+	 * default: 1000
+	 * ---
+	 *
+	 * [--apply]
+	 * : Escribir la nota y la marca en los pedidos con diferencia (y limpiar las resueltas).
+	 *
+	 * [--format=<format>]
+	 * : table, csv o json.
+	 * ---
+	 * default: table
+	 * ---
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Auditoría de 9 meses, solo lectura
+	 *     wp woo2odoo check-totals --since=2026-02-10 --format=csv
+	 *
+	 *     # Un pedido
+	 *     wp woo2odoo check-totals 18603
+	 *
+	 * @when after_wp_load
+	 */
+	public function check_totals( array $args, array $assoc_args ): void {
+		$order_id = isset( $args[0] ) ? (int) $args[0] : 0;
+		$apply    = (bool) \WP_CLI\Utils\get_flag_value( $assoc_args, 'apply', false );
+		$limit    = (int) \WP_CLI\Utils\get_flag_value( $assoc_args, 'limit', 1000 );
+		$format   = (string) \WP_CLI\Utils\get_flag_value( $assoc_args, 'format', 'table' );
+		$since    = (string) \WP_CLI\Utils\get_flag_value( $assoc_args, 'since', '90 days ago' );
+		$statuses = array_filter( array_map( 'trim', explode( ',', (string) \WP_CLI\Utils\get_flag_value( $assoc_args, 'wc-status', implode( ',', Woo2Odoo_Total_Check::CHECK_STATUSES ) ) ) ) );
+
+		if ( $order_id ) {
+			$order  = wc_get_order( $order_id );
+			$orders = $order ? array( $order ) : array();
+		} else {
+			$ts = strtotime( $since );
+			if ( false === $ts ) {
+				\WP_CLI::error( "Fecha inválida en --since: $since" );
+				return;
+			}
+			$orders = wc_get_orders( array(
+				'limit'        => $limit,
+				'status'       => array_map( fn( $s ) => str_starts_with( $s, 'wc-' ) ? $s : 'wc-' . $s, $statuses ),
+				'date_created' => '>=' . $ts,
+				'orderby'      => 'date',
+				'order'        => 'ASC',
+				'meta_query'   => array(
+					array( 'key' => '_woo2odoo_sync_status', 'value' => 'synced' ),
+					array( 'key' => '_odoo_sale_order_id', 'compare' => 'EXISTS' ),
+				),
+			) );
+		}
+		$orders = array_values( array_filter( $orders, array( Woo2Odoo_Total_Check::class, 'is_checkable' ) ) );
+		if ( empty( $orders ) ) {
+			\WP_CLI::success( 'No hay pedidos sincronizados para revisar.' );
+			return;
+		}
+
+		$by_so = array();
+		try {
+			$client = $this->make_client();
+			foreach ( array_chunk( array_map( fn( $o ) => (int) $o->get_meta( '_odoo_sale_order_id' ), $orders ), 100 ) as $chunk ) {
+				foreach ( (array) $client->execute( 'sale.order', 'read', array( $chunk, array( 'name', 'state', 'amount_total' ) ) ) as $so ) {
+					$by_so[ (int) $so->id ] = $so;
+				}
+			}
+		} catch ( \Throwable $e ) {
+			\WP_CLI::error( 'No se pudo leer Odoo: ' . $e->getMessage() );
+			return;
+		}
+
+		$rows     = array();
+		$missing  = 0;
+		$resolved = 0;
+		foreach ( $orders as $order ) {
+			$so = $by_so[ (int) $order->get_meta( '_odoo_sale_order_id' ) ] ?? null;
+			if ( ! $so || 'cancel' === $so->state ) {
+				++$missing;
+				continue;
+			}
+			$woo      = (float) $order->get_total();
+			$odoo     = (float) $so->amount_total;
+			$decision = Woo2Odoo_Total_Check::apply( $order, $woo, $odoo, (string) $so->name, $apply );
+			if ( 'resolved' === $decision ) {
+				++$resolved;
+			}
+			if ( 'none' === $decision || 'resolved' === $decision ) {
+				continue;
+			}
+			$rows[] = array(
+				'order'     => $order->get_id(),
+				'wc_status' => $order->get_status(),
+				'so'        => (string) $so->name,
+				'woo_total' => (int) round( $woo ),
+				'odoo_total' => (int) round( $odoo ),
+				'diff'      => (int) round( $woo - $odoo ),
+				'marked'    => $apply ? 'sí' : ( '' !== (string) $order->get_meta( Woo2Odoo_Total_Check::META_DIFF ) ? 'ya marcado' : 'no' ),
+			);
+		}
+
+		if ( $rows ) {
+			\WP_CLI\Utils\format_items( $format, $rows, array( 'order', 'wc_status', 'so', 'woo_total', 'odoo_total', 'diff', 'marked' ) );
+		}
+		\WP_CLI::log( sprintf(
+			'Revisados %d pedido(s): %d con diferencia, %d sin pedido de venta activo en Odoo%s.',
+			count( $orders ),
+			count( $rows ),
+			$missing,
+			$apply ? sprintf( ', %d marca(s) resuelta(s) limpiada(s)', $resolved ) : ' (solo lectura; usa --apply para marcar)'
+		) );
+	}
+
+	/** Odoo client for check-totals (overridable in tests). */
+	protected function make_client() {
+		return new Woo2Odoo_Client();
+	}
+
 	private function sync_single( int $order_id, bool $dry_run ): void {
 		if ( ! Woo2Odoo_Config::sync_enabled() ) {
 			\WP_CLI::warning( 'Sync is disabled by the master switch (export_order / WOO2ODOO_SYNC_DISABLED); nothing will be sent. Use `wp woo2odoo shadow` to preview payloads.' );
