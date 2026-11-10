@@ -11,6 +11,7 @@
     <testsuites>
         <testsuite name="pure">
             <file>tests/test-test-orders-patterns.php</file>
+            <file>tests/test-total-check.php</file>
         </testsuite>
     </testsuites>
 </phpunit>

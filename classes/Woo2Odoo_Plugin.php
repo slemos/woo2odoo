@@ -108,6 +108,9 @@ final class Woo2Odoo_Plugin {
 		// Propagate order cancellation to Odoo (cancel SO, and draft children conservatively)
 		add_action( 'woocommerce_order_status_cancelled', array( $this, 'auto_cancel_order' ), 10, 1 );
 
+		// Warn (never fix) when the Woo total differs from the Odoo sale order total.
+		Woo2Odoo_Total_Check::register();
+
 		// Stock sync cron hook
 		add_action( 'odoo_process_import_update_stocks', array( $this, 'run_stock_sync' ) );
 
