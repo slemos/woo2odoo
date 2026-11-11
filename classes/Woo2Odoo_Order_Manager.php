@@ -1157,6 +1157,9 @@ class Woo2Odoo_Order_Manager {
 		$order_items   = $order->get_items();
 		$odoo_products = $this->get_odoo_skus( $order );
 		$all_success   = true;
+		// sale.order.line ids created by THIS call, so a SKU that appears twice in the same
+		// WC order gets its own line instead of overwriting the first one.
+		$created_lines = array();
 
 		foreach ($order_items as $item) {
 			$product      = $item->get_product();
@@ -1190,10 +1193,15 @@ class Woo2Odoo_Order_Manager {
 					null,
 					array( 'single' => true )
 				);
-				if ( $odoo_order_line ) {
-					$retval = $this->client->update_record( 'sale.order.line', $odoo_order, $line_data );
+				if ( $odoo_order_line && ! isset( $created_lines[ (int) $odoo_order_line->id ] ) ) {
+					// Update the LINE found above. v1.6.1 passed the sale.order id here, which
+					// wrote this line's values onto whatever sale.order.line had that id.
+					$retval = $this->client->update_record( 'sale.order.line', (int) $odoo_order_line->id, $line_data );
 				} else {
 					$retval = $this->client->create_record( 'sale.order.line', $line_data );
+					if ( $retval && is_numeric( $retval ) ) {
+						$created_lines[ (int) $retval ] = true;
+					}
 				}
 				if ( !$retval ) {
 					$this->client->log_error( 'Error creating order line item in Odoo', array( 'Order Line Data' => $line_data ) );
